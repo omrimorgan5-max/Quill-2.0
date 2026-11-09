@@ -2,21 +2,21 @@
 const PI: double = 3.14159265358979323846;
 const E: double = 2.71828;
 const NaN: double = 0.0 / 0.0;
-const INFINITY_Q: double = C_call("INFINITY");
+const INFINITY_Q: double = 1.0 / 0.0;
 
 func copysign_quill(x: number, y: number) { let abs_x = x; if (x < 0) { abs_x = -x; } if (y < 0) { return -abs_x; } return abs_x; }
 func abs_quill(n: number) { if (n < 0) { return -n; } return n; }
-func floor_quill(n: double) { let int_n: number; C_call("int_n = (int)n;"); if (n < int_n) { int_n = int_n - 1; } return int_n }
-func ceil_quill(n: double) { let int_n: number; let d_n: double; C_call("int_n = (int)n;"); if (n > int_n) { C_call("d_n = (double)int_n + 1;"); return d_n } return d_n; }
+func floor_quill(n: double) { let int_n: number = toInt(n); if (n < int_n) { int_n = int_n - 1; } return int_n }
+func ceil_quill(n: double) { let int_n: number = toInt(n); if (n > int_n) { return int_n + 1; } return int_n; }
 func int_ceil_quill(x: number, y: number) { return(x + y - 1) / y; }
 func sqrt_quill(n: double) { if (n < 0) { return -1.0; } let x: double = n; let y: double = 1.0; let e: double = 0.0000001; while (x - y > e) { x = (x + y) / 2; y = n / x; } return x; }
 func pow_quill(x: double, n: number) { if (n == 0) { return 1.0; } if (n < 0) { return 1.0 / pow_quill(x, -n); } let h: double = pow_quill(x, n / 2); if (n % 2 == 0) { return h * h; } else { return x * h * h; }}
 func cubrt_quill(x: double) { if (x == 0.0) { return 0.0; } let g: double = x; let p: double = 0.0; let n: bool = false; let f: number = 0; if (x < 0){ n = true; x = -x;} g = x / 3.0; while (g != p) { p = g; g = (2.0 * g + x / (g * g)) / 3.0; f++ if (f >= 200) {if(n) {return -g;} else {return g;}} } if (n){ return -g; } else { return g; }}
-func exp_quill(x: double) { let s: double = 1.0; let t: double = 1.0; let n: number = 1; let e: double; C_call("e = 1e-12;") while (t > e || t < -e) { t = t * x / n; s = s + t; n++; if (n > 200) { return 0; } } return s; }
-func trunc_quill(x: double) { let d: double; C_call("long long i_p = (long long)x;\nd = (double)i_p;") return d;}
-func round_quill(x: double) { if (x > 0.0) { C_call("x = (double)(int)(x + 0.5);"); return x; } else { C_call("x = (double)(int)(x - 0.5);"); return x; } }
+func exp_quill(x: double) { let s: double = 1.0; let t: double = 1.0; let n: number = 1; let e: double = 0.000000000001; while (t > e || t < -e) { t = t * x / n; s = s + t; n++; if (n > 200) { return 0; } } return s; }
+func trunc_quill(x: double): double { let int_part: number = toInt(x); return int_part; }
+func round_quill(x: double): double { if (x > 0.0) { return floor_quill(x + 0.5); } return ceil_quill(x - 0.5); }
 func hypot_quill(x: double, y: double) { return sqrt_quill((pow_quill(x, 2) + pow_quill(y, 2))); }
-func is_inf(x: double) { return C_call("isinf(x)"); }
-func is_nan(x: double) { return C_call("isnan(x)"); }
+func is_inf(x: double) { return x == INFINITY_Q || x == -INFINITY_Q; }
+func is_nan(x: double) { return x != x; }
 func factorial(n: number): number { if (n <= 1) { return 1; } return n * factorial(n - 1); }
 func fib(n: number): number { if (n <= 1) { return n; } let a: number = 0; let b: number = 1; let i: number = 2; while (i <= n) { let temp: number = a + b; a = b; b = temp; i++; } return b; }

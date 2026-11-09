@@ -24,6 +24,22 @@ toString(-100)   # → "-100"
 toString(0)      # → "0"
 ```
 
+`toInt(double)` truncates toward zero, and `toDouble(number)` converts an integer to floating point.
+
+### Character and substring operations
+
+```quill
+toChar(65)                    # 'A'
+charAt("Quill", 0)            # 'Q'
+substring("Quill", 1, 4)     # "uil"; end index is exclusive
+contains("Quill", "ui")       # true
+startsWith("Quill", "Qui")    # true
+endsWith("Quill", "ill")      # true
+indexOf("Quill", "ui")        # 1; returns -1 when absent
+```
+
+The pure-Quill utilities in `stdlib/string/string.qsc` include `reverse_string`, `trim_ascii`, `is_ascii_digit`, and `is_ascii_letter`.
+
 ### input(variable)
 
 Reads from stdin into an existing variable.
@@ -41,10 +57,10 @@ input(line);     # reads a full line
 
 ## Math Library
 
-Quill includes a growing set of math functions. Import them from the standard library:
+Quill includes a growing set of math functions implemented in Quill. Import them from the standard library:
 
 ```quill
-import "../stdlib/math.qsc";
+import "../stdlib/math/math.qsc";
 ```
 
 ### Basic Math Functions
@@ -91,7 +107,7 @@ is_nan(x)             # Check if x is NaN (Not a Number)
 Quill includes a random number module:
 
 ```quill
-import "../stdlib/random.qsc";
+import "../stdlib/random/random.qsc";
 ```
 
 > **Note:** The specific random functions available depend on the standard library implementation. Consult `stdlib/random.qsc` for details.
@@ -161,12 +177,7 @@ For functions not in the standard library, use `C_call()` to embed raw C:
 C_call("printf(\"Hello from C\\n\");");
 ```
 
-Or `C_top()` for file-scope declarations:
-
-```quill
-C_top("#include <math.h>");
-C_top("double global_x = 0.0;");
-```
+Top-level Quill declarations are emitted at file scope. Use a Quill global instead of embedding a raw C global.
 
 ## Module System
 

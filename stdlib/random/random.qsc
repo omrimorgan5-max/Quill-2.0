@@ -1,45 +1,9 @@
-# random.qsc  –  simple random integers, no manual seed needed
+# random.qsc - simple random integers, seeded once by the compiler runtime
 
-C_top("
-#include <stdint.h>
-#include <time.h>
-#include <stdlib.h>
-
-static int _quill_rand_seeded = 0;
-
-static void _quill_ensure_seeded(void) {
-    if (!_quill_rand_seeded) {
-        /* Mix time + process-ish noise so consecutive runs differ */
-        unsigned int s = (unsigned int)time(NULL);
-        s ^= (unsigned int)(uintptr_t)&s;   /* stack address entropy */
-        srand(s);
-        _quill_rand_seeded = 1;
-    }
-}
-
-/* Returns a non-negative random integer (0 .. RAND_MAX) */
-int quill_random(void) {
-    _quill_ensure_seeded();
-    return rand();
-}
-
-/* Optional: random integer in [lo, hi] inclusive */
-int quill_random_range(int lo, int hi) {
-    _quill_ensure_seeded();
-    if (lo > hi) { int t = lo; lo = hi; hi = t; }
-    if (lo == hi) return lo;
-    return lo + (rand() % (hi - lo + 1));
-}
-");
-
-extern func quill_random(): number;
-extern func quill_random_range(lo: number, hi: number): number;
-
-# Convenience aliases so you can just write random() / random_range()
 func random(): number {
-    return quill_random();
+    return random_int();
 }
 
 func random_range(lo: number, hi: number): number {
-    return quill_random_range(lo, hi);
+    return random_range_int(lo, hi);
 }

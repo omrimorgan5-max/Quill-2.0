@@ -1,0 +1,29 @@
+fn reverse_string(text: string) -> string {
+    let mut reversed: string = "";
+    let mut index: number = len(text) - 1;
+    while index >= 0 {
+        reversed = reversed + toChar(text[index]);
+        index--;
+    }
+    return reversed;
+}
+
+fn trim_ascii(text: string) -> string {
+    let mut start: number = 0;
+    let mut end: number = len(text);
+    while start < end && (text[start] == 32 || text[start] == 9 || text[start] == 10 || text[start] == 13) {
+        start++;
+    }
+    while end > start && (text[end - 1] == 32 || text[end - 1] == 9 || text[end - 1] == 10 || text[end - 1] == 13) {
+        end--;
+    }
+    return substring(text, start, end);
+}
+
+fn is_ascii_digit(code: number) -> bool {
+    return code >= 48 && code <= 57;
+}
+
+fn is_ascii_letter(code: number) -> bool {
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}

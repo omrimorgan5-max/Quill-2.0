@@ -1,7 +1,6 @@
 # math.qsc test file tests math functions included in stdlib/math 
 
-import "../stdlib/math.qsc";
-C_top("#include <math.h>");
+import "../stdlib/math/math.qsc";
 let x: double = 4.3;
 let y: double = 4.0;
 

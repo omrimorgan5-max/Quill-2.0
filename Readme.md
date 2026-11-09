@@ -4,11 +4,11 @@
 ## Why Quill?
 
 - **Built for Math & Numerics** — First-class `number`, `double`, and `char` types, clean arithmetic, and a growing math-oriented standard library. Ideal for algorithms, calculators, simulations, and performance-sensitive numeric code.
-- **Blazing Fast** — Compiles to native machine code for near-C performance. The current pipeline transpiles to C and builds with gcc; the long-term backend is **LLVM** for direct, optimized native code generation.
+- **Blazing Fast** — Compiles to native machine code for near-C performance. The compiler uses a temporary C backend and removes the generated source after compilation.
 - **Statically Typed** — Type errors are caught at compile time before execution.
 - **Simple & Clean Syntax** — Readable syntax with optional semicolons and zero clutter. Spend time on the math, not the boilerplate.
 - **Cross-Platform** — Native executable support for **Linux** and **Windows**.
-- **Escape Hatch to C** — Call C library functions directly with `extern`, or drop into raw C with `C_call` / `C_top` when you need something Quill doesn't have natively yet.
+- **C Interoperability** — Call linked C functions with typed `extern` declarations, or use `C_call` for a raw statement when needed.
 
 Modules and the `qpm` package manager are supported, but Quill's primary focus is **fast numeric code** and a clear path to high-performance native compilation — not a large packaging ecosystem.
 
@@ -35,11 +35,11 @@ chmod +x quill-linux
 ## Usage
 
 ```bash
-# Transpile to C and compile to a native binary
-quill-[os] --compile myfile.qsc
+# Compile to a native binary (default)
+quill-[os] myfile.qsc
 
-# Transpile only (produces output.c, does not compile it)
-quill-[os] myfile.qsc -o output.c
+# Emit C only; do not compile
+quill-[os] --emit-c myfile.qsc -o output.c
 ```
 
 ---
@@ -115,24 +115,37 @@ while x < 5 {
 
 > **Note:** `elif` is reserved but not yet wired into the parser — use `else if` (two words) for else-if chains.
 
-### Arrays
+### Arrays and Lists
 
-Fixed-size, declared with a literal size, local to the function they're declared in (not usable as a parameter or return type yet).
+Fixed-size arrays and growable `Vec` values are supported. Growable arrays can be passed to and returned from functions; mutations through a parameter affect the caller's list.
 
 ```quill
 let stack: number[200];
 stack[0] = 42;
 say stack[0];
+
+let mut values: Vec<number> = [2, 7];
+push(values, 11);
+say values[2];
+
+fn increment_first(items: Vec<number>) -> Vec<number> {
+    items[0] = items[0] + 1;
+    return items;
+}
 ```
 
-`number[]`, `double[]`, `string[]`, and `bool[]` all work the same way.
+`Vec<number>` is equivalent to `number[]`; `double`, `string`, and `bool` vectors are also supported. Use `len`, `push`, and `pop` with growable arrays.
+
+String equality compares text contents. Strings can be indexed to read character codes, which supports parsers and digit-oriented algorithms without C interop. `toInt` and `toDouble` provide explicit numeric conversions.
+
+Structs are value types and can be passed to and returned from functions. String helpers include `charAt`, `toChar`, `substring`, `contains`, `startsWith`, `endsWith`, and `indexOf`; pure-Quill utilities live in `stdlib/string/string.qsc`.
 
 ### Functions
 
-Functions must be declared before they are called. The return type annotation is optional — Quill infers it from your `return` statements if you omit it. Two functions can't share a name anywhere in the whole program, including across imports.
+Functions must be declared before they are called. Rust-style `fn` and `->` syntax is supported; the older `func` and `: ReturnType` spelling remains accepted. Return types are optional and inferred when omitted. Two functions can't share a name anywhere in the whole program, including across imports.
 
 ```quill
-func add(a: number, b: number): number {
+fn add(a: number, b: number) -> number {
     return a + b;
 }
 
@@ -160,7 +173,12 @@ input(someStringVar) # reads a full line into a string
 
 Math helpers live under `stdlib/math/` (sqrt, pow, floor, factorial, fib, …). Import them when you need them.
 
-**Bonus:** every generated file always includes C's `<stdio.h>`, `<string.h>`, `<ctype.h>`, and `<stdlib.h>` — so functions like `strcmp`, `strlen`, `isdigit`, `toupper`, `atoi`, and `rand` are callable **by name** once declared with `extern`, with no extra includes required.
+Random helpers are available from the standard library without C declarations:
+
+```quill
+import "stdlib/random/random.qsc";
+say random_range(1, 6);
+```
 
 ### Calling C Directly
 
@@ -170,7 +188,16 @@ For anything else, `C_call("...")` splices raw C directly into your program, at 
 C_call("printf(\"%s\\n\", \"raw C, verbatim\");");
 ```
 
-`C_top("...")` does the same thing, but always lands at file scope, *above* `main()` — use it for extra `#include`s, global variables, and struct definitions when needed.
+`C_top` has been removed. Declare Quill globals directly at file scope:
+
+```quill
+let mut total: number = 0;
+
+fn add_to_total(value: number) -> number {
+    total = total + value;
+    return total;
+}
+```
 
 **Important:** any backslash you want to survive into the generated C must be doubled. Quill's own string lexer un-escapes `\n` into a real newline character *before* `C_call` ever sees it — write `\\n` to get a literal `\n` in the output.
 
@@ -274,9 +301,8 @@ Quill/
 
 - `let`/`mut`/`const` don't enforce immutability yet.
 - `elif` is reserved but not parsed — use `else if`.
-- No array/struct function parameters or return values (arrays are local-only).
 - No closures, function values, or higher-order functions — a function can only be called by name where it's written.
-- No hashmaps/objects — see [Roadmap](#roadmap).
+- No object/class system yet; string-keyed maps are supported.
 - `import` only works at the top level of a file; writing it inside a function or block is silently ignored.
 
 ---
@@ -289,9 +315,10 @@ Quill/
 * [x] String, number, and char `input()`
 * [x] File imports (`import "path.qsc";`)
 * [x] `extern` function declarations for typed C interop
-* [x] Raw C interop (`C_call` / `C_top`)
-* [ ] Dynamic arrays / slice operations
-* [ ] Hashmaps / Objects
+* [x] Raw C statement interop (`C_call`)
+* [x] Dynamic arrays with `Vec<T>`, function parameters/returns, `push`, and `pop`
+* [x] String-keyed hash maps
+* [ ] Objects / classes
 * [ ] Extended string utilities (`split`, `trim`, `replace`)
 * [ ] Richer math stdlib (vectors, matrices, more numeric helpers)
 * [ ] Native File I/O (raw `<stdio.h>` functions are already callable via `extern`)

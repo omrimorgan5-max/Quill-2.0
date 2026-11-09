@@ -20,6 +20,36 @@ public:
     // returns.
     void check(const Program& program, const std::map<std::string, std::string>& functionReturnTypes) {
         this->functionReturnTypes = functionReturnTypes;
+        functionParameterTypes["toChar"] = {"number"};
+        functionParameterTypes["toInt"] = {"double"};
+        functionParameterTypes["toDouble"] = {"number"};
+        functionParameterTypes["charAt"] = {"string", "number"};
+        functionParameterTypes["substring"] = {"string", "number", "number"};
+        functionParameterTypes["contains"] = {"string", "string"};
+        functionParameterTypes["startsWith"] = {"string", "string"};
+        functionParameterTypes["endsWith"] = {"string", "string"};
+        functionParameterTypes["indexOf"] = {"string", "string"};
+        for (::Node* stmt : program.body) {
+            if (auto* sd = dynamic_cast<StructDecl*>(stmt)) {
+                std::map<std::string, std::string> fields;
+                for (const auto& field : sd->fields)
+                    fields[field.name] = field.type.empty() ? "number" : field.type;
+                structFields[sd->name] = fields;
+            } else if (auto* fn = dynamic_cast<Function*>(stmt)) {
+                std::vector<std::string> params;
+                for (const Param& param : fn->params)
+                    params.push_back(param.type);
+                functionParameterTypes[fn->name] = params;
+            }
+        }
+        for (::Node* stmt : program.body) {
+            if (auto* decl = dynamic_cast<VariableDeclaration*>(stmt)) {
+                if (!decl->declaredType.empty())
+                    symbols[decl->identifier] = decl->declaredType;
+                else if (decl->value)
+                    symbols[decl->identifier] = inferType(decl->value);
+            }
+        }
         for (::Node* stmt : program.body) {
             checkNode(stmt);
         }
@@ -28,7 +58,20 @@ public:
 private:
     std::unordered_map<std::string, std::string> symbols;
     std::map<std::string, std::string> functionReturnTypes;
+    std::map<std::string, std::vector<std::string>> functionParameterTypes;
     std::map<std::string, std::map<std::string, std::string>> structFields;
+    std::string currentReturnType;
+    int loopDepth = 0;
+
+    bool typesCompatible(const std::string& expected, const std::string& actual) const {
+        if (expected.empty() || expected == "unknown" || actual == "unknown") return true;
+        if (expected == actual) return true;
+        if (expected == "double" && actual == "number") return true;
+        if (expected.find('[') != std::string::npos && actual.find('[') != std::string::npos) {
+            return expected.substr(0, expected.find('[')) == actual.substr(0, actual.find('['));
+        }
+        return false;
+    }
 
     void checkNode(::Node* node) {
         if (!node) return;
@@ -50,8 +93,13 @@ private:
 
         if (auto* fn = dynamic_cast<Function*>(node)) {
             auto saved = symbols;
+            std::string savedReturnType = currentReturnType;
+            int savedLoopDepth = loopDepth;
+            loopDepth = 0;
+            auto returnType = functionReturnTypes.find(fn->name);
+            currentReturnType = returnType == functionReturnTypes.end() ? "unknown" : returnType->second;
             for (const Param& param : fn->params) {
-                symbols[param.name] = param.type;
+                symbols[param.name] = param.type.empty() ? "unknown" : param.type;
             }
 
             for (::Node* stmt : fn->body) {
@@ -59,6 +107,8 @@ private:
             }
 
             symbols = saved;
+            currentReturnType = savedReturnType;
+            loopDepth = savedLoopDepth;
             return;
         }
 
@@ -71,7 +121,9 @@ private:
 
         if (auto* whileLoop = dynamic_cast<WhileLoop*>(node)) {
             checkNode(whileLoop->condition);
+            ++loopDepth;
             for (::Node* stmt : whileLoop->body) checkNode(stmt);
+            --loopDepth;
             return;
         }
 
@@ -87,7 +139,9 @@ private:
             }
             if (fl->start) checkNode(fl->start);
             if (fl->end) checkNode(fl->end);
+            ++loopDepth;
             for (::Node* stmt : fl->body) checkNode(stmt);
+            --loopDepth;
             symbols = saved;
             return;
         }
@@ -103,20 +157,48 @@ private:
 
         if (auto* fa = dynamic_cast<FieldAccess*>(node)) {
             checkNode(fa->object);
+            std::string objectType = inferType(fa->object);
+            auto structIt = structFields.find(objectType);
+            if (structIt == structFields.end() || structIt->second.find(fa->field) == structIt->second.end())
+                throw std::runtime_error("unknown field '" + fa->field + "' on type " + objectType);
             return;
         }
         if (auto* fas = dynamic_cast<FieldAssignment*>(node)) {
             checkNode(fas->object);
             checkNode(fas->value);
+            std::string objectType = inferType(fas->object);
+            auto structIt = structFields.find(objectType);
+            if (structIt == structFields.end())
+                throw std::runtime_error("field assignment requires a struct value");
+            auto fieldIt = structIt->second.find(fas->field);
+            if (fieldIt == structIt->second.end())
+                throw std::runtime_error("unknown field '" + fas->field + "' on type " + objectType);
+            if (!typesCompatible(fieldIt->second, inferType(fas->value)))
+                throw std::runtime_error("type mismatch assigning to field '" + fas->field + "'");
             return;
         }
         if (auto* sl = dynamic_cast<StructLiteral*>(node)) {
-            for (::Node* v : sl->fieldValues) checkNode(v);
+            auto structIt = structFields.find(sl->name);
+            if (structIt == structFields.end())
+                throw std::runtime_error("unknown struct type: " + sl->name);
+            for (std::size_t i = 0; i < sl->fieldValues.size(); ++i) {
+                checkNode(sl->fieldValues[i]);
+                auto fieldIt = structIt->second.find(sl->fieldNames[i]);
+                if (fieldIt == structIt->second.end())
+                    throw std::runtime_error("unknown field '" + sl->fieldNames[i] + "' on type " + sl->name);
+                if (!typesCompatible(fieldIt->second, inferType(sl->fieldValues[i])))
+                    throw std::runtime_error("type mismatch for field '" + sl->fieldNames[i] + "'");
+            }
             return;
         }
 
         if (auto* ret = dynamic_cast<ReturnStatement*>(node)) {
             checkNode(ret->value);
+            if (currentReturnType.empty())
+                throw std::runtime_error("return used outside a function");
+            std::string actualType = ret->value ? inferType(ret->value) : "void";
+            if (!typesCompatible(currentReturnType, actualType))
+                throw std::runtime_error("return type mismatch: expected " + currentReturnType + ", got " + actualType);
             return;
         }
 
@@ -129,6 +211,24 @@ private:
             for (::Node* arg : call->arguments) {
                 checkNode(arg);
             }
+            auto signature = functionParameterTypes.find(call->callee);
+            if (signature != functionParameterTypes.end()) {
+                if (call->arguments.size() != signature->second.size())
+                    throw std::runtime_error("function '" + call->callee + "' expects " +
+                                             std::to_string(signature->second.size()) + " arguments, got " +
+                                             std::to_string(call->arguments.size()));
+                for (std::size_t i = 0; i < call->arguments.size(); ++i) {
+                    if (!typesCompatible(signature->second[i], inferType(call->arguments[i])))
+                        throw std::runtime_error("type mismatch for argument " + std::to_string(i + 1) +
+                                                 " to function '" + call->callee + "'");
+                }
+            }
+            return;
+        }
+
+        if (auto* control = dynamic_cast<LoopControl*>(node)) {
+            if (loopDepth == 0)
+                throw std::runtime_error("'" + control->keyword + "' is only valid inside a loop");
             return;
         }
 
@@ -199,13 +299,11 @@ private:
         }
     }
 
-    // C_call()/C_top() splice raw, unverifiable C text -- Quill has no
-    // way to know their real type, so (the same trust model as `extern
-    // func`) the student's own annotation is trusted rather than
-    // checked against a guess that can only ever be wrong.
+    // C_call() splices raw, unverifiable C text, so its annotated type
+    // cannot be checked against a reliable inference.
     bool isRawCSplice(::Node* node) {
         auto* call = dynamic_cast<CallExpression*>(node);
-        return call && (call->callee == "C_call" || call->callee == "C_top");
+        return call && call->callee == "C_call";
     }
 
     void checkVariableDeclaration(VariableDeclaration* decl) {
@@ -326,8 +424,14 @@ private:
         }
 
         if (auto* binary = dynamic_cast<BinaryExpression*>(node)) {
+            if (binary->op == "==" || binary->op == "!=" || binary->op == "<" ||
+                binary->op == ">" || binary->op == "<=" || binary->op == ">=" ||
+                binary->op == "&&" || binary->op == "||")
+                return "bool";
             std::string left = inferType(binary->left);
             std::string right = inferType(binary->right);
+            if (binary->op == "+" && (left == "string" || right == "string"))
+                return "string";
             if (left == right) return left;
             if ((left == "number" && right == "double") || (left == "double" && right == "number")) return "double";
             return "unknown";

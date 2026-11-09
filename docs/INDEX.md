@@ -35,10 +35,10 @@ Quill is a **statically-typed, compiled language** built for performance. It fea
 - Variables: `let`, `mut`, `const`
 - Functions with type signatures
 - Control flow: `if/else`, `while` loops
-- Fixed-size arrays
+- Fixed-size arrays and growable `Vec<T>` lists
 - Strings and string operations
 - Standard library with math functions
-- Direct C interoperability with `extern`, `C_call`, `C_top`
+- C function interoperability with `extern` and `C_call`
 - Module system with `import`
 
 ---
@@ -50,7 +50,7 @@ Quill is a **statically-typed, compiled language** built for performance. It fea
 #### Compile to Native Binary
 
 ```bash
-quill-[os] --compile myfile.qsc
+quill-[os] myfile.qsc
 ```
 
 Transpiles to C and compiles to a native executable.
@@ -64,10 +64,10 @@ quill-linux --compile program.qsc          # Creates 'program' binary
 quill-linux --compile program.qsc -o bin   # Creates 'bin' binary
 ```
 
-#### Transpile to C Only
+#### Emit C Without Compiling
 
 ```bash
-quill-[os] myfile.qsc -o output.c
+quill-[os] --emit-c myfile.qsc -o output.c
 ```
 
 Generates C code without compiling. Useful for inspection or custom compilation.

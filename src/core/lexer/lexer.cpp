@@ -67,6 +67,12 @@ public:
                 continue;
             }
 
+            if (c == '-' && pos_ + 1 < input_.size() && input_[pos_ + 1] == '>') {
+                tokens.push_back(Token{TokenType::Operator, "->"});
+                pos_ += 2;
+                continue;
+            }
+
             if (c == '<' && pos_ + 1 < input_.size() && input_[pos_ + 1] == '=') {
                 tokens.push_back(Token{TokenType::Operator, "<="});
                 pos_ += 2;
@@ -146,7 +152,8 @@ private:
         if (text == "let" || text == "mut" || text == "const" || text == "printf" || text == "say" ||
             text == "func" || text == "fn" || text == "if" || text == "else" || text == "elif" || text == "while" ||
             text == "for" || text == "in" || text == "struct" || text == "map" ||
-            text == "return" || text == "true" || text == "false" || text == "import" || text == "extern") {
+            text == "return" || text == "true" || text == "false" || text == "import" || text == "extern" ||
+            text == "break" || text == "continue") {
             return Token{TokenType::Keyword, text};
         }
 

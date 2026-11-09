@@ -28,9 +28,7 @@ struct Function : Node {
     std::string returnType;
     std::vector<::Node*> body;
     // true for `extern func name(...): type;` -- a signature-only
-    // declaration for a function implemented elsewhere (a C library
-    // function reached via C_top's #include). Registers its return
-    // type for inference purposes; emits no C definition of its own.
+    // declaration for a function implemented elsewhere.
     bool isExtern = false;
 };
 
@@ -51,6 +49,10 @@ struct IfStatement : Node {
 struct WhileLoop : Node {
     ::Node* condition = nullptr;
     std::vector<::Node*> body;
+};
+
+struct LoopControl : Node {
+    std::string keyword;
 };
 
 struct Comment : Node {

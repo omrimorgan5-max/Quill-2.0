@@ -15,21 +15,20 @@ Quill's type system is statically checked at compile time. All type errors are c
 
 ## Array Types
 
-Fixed-size arrays are created with a literal size. The size must be known at compile time.
+Fixed-size arrays use a compile-time literal size. Growable arrays use `Vec<T>` or the equivalent `T[]` spelling.
 
 ```quill
 let numbers: number[10];    # Array of 10 integers
 let values: double[100];    # Array of 100 doubles
 let flags: bool[50];        # Array of 50 booleans
 let names: string[5];       # Array of 5 strings
+
+let mut items: Vec<number> = [2, 7];
 ```
 
-### Array Limitations (Current)
+Growable arrays can be passed to and returned from functions. Mutations through an array parameter affect the caller's array. Use `push`, `pop`, and `len` for common list operations.
 
-- Arrays cannot be function parameters (yet)
-- Arrays cannot be returned from functions (yet)
-- Arrays are local to the function they're declared in
-- There is no dynamic resizing (they are fixed-size)
+Fixed-size arrays remain local and cannot yet be passed to or returned from functions.
 
 ## Type Conversions
 
@@ -176,7 +175,7 @@ if is_valid {
 2. **Prefer `number` for integers** — It's the default integer type
 3. **Use `double` for floating-point** — More precision than `number`
 4. **Use `string` for text** — Quill handles concatenation automatically
-5. **Remember array limitations** — Plan your data structures around fixed-size, function-local arrays
+5. **Choose array storage deliberately** — Use fixed-size arrays for known sizes and `Vec<T>` for growable lists
 
 ## Next Steps
 

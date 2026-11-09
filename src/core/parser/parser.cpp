@@ -38,6 +38,49 @@ public:
     }
 
 private:
+    std::string parseTypeName()
+    {
+        std::string type = advance().value;
+
+        if (type == "Vec" && peek().value == "<")
+        {
+            advance();
+            std::string elementType = parseTypeName();
+            if (peek().value == ">")
+                advance();
+            return elementType + "[]";
+        }
+
+        if (type == "map" && peek().value == "[")
+        {
+            advance();
+            std::string keyType = advance().value;
+            if (peek().value == ",")
+                advance();
+            std::string valueType = advance().value;
+            if (peek().value == "]")
+                advance();
+            return "map[" + keyType + "," + valueType + "]";
+        }
+
+        if (peek().value == "[")
+        {
+            advance();
+            if (peek().value == "]")
+            {
+                advance();
+                return type + "[]";
+            }
+
+            std::string size = advance().value;
+            if (peek().value == "]")
+                advance();
+            return type + "[" + size + "]";
+        }
+
+        return type;
+    }
+
     bool isAtEnd() const
     {
         return peek().type == TokenType::EOF_T;
@@ -121,6 +164,13 @@ private:
             return parseReturnStatement();
         }
 
+        if (peek().value == "break" || peek().value == "continue")
+        {
+            LoopControl *node = new LoopControl();
+            node->keyword = advance().value;
+            return node;
+        }
+
         if (peek().value == "if")
         {
             return parseIfStatement();
@@ -169,47 +219,15 @@ private:
     Node *parseVariableDeclaration()
     {
         std::string kind = advance().value;
+        if (kind == "let" && peek().value == "mut")
+            advance();
         std::string name = advance().value;
 
         std::string type = "";
         if (peek().value == ":")
         {
             advance();
-            type = advance().value;
-
-            // map[K, V]  -- associative map
-            if (type == "map" && peek().value == "[")
-            {
-                advance(); // [
-                std::string keyT = advance().value;
-                if (peek().value == ",")
-                    advance();
-                std::string valT = advance().value;
-                if (peek().value == "]")
-                    advance();
-                type = "map[" + keyT + "," + valT + "]";
-            }
-            // Array types:
-            //   number[200]  -- fixed size
-            //   number[]     -- dynamic (growable) array
-            else if (peek().value == "[")
-            {
-                advance();
-                if (peek().value == "]")
-                {
-                    advance();
-                    type += "[]";
-                }
-                else
-                {
-                    std::string sizeTok = advance().value;
-                    type += "[" + sizeTok + "]";
-                    if (peek().value == "]")
-                    {
-                        advance();
-                    }
-                }
-            }
+            type = parseTypeName();
         }
 
         // Arrays may be declared without an initializer
@@ -249,7 +267,7 @@ private:
                 if (peek().value == ":")
                 {
                     advance();
-                    p.type = advance().value;
+                    p.type = parseTypeName();
                 }
                 node->params.push_back(p);
                 if (peek().value == ",")
@@ -263,10 +281,10 @@ private:
             }
         }
 
-        if (peek().value == ":")
+        if (peek().value == ":" || peek().value == "->")
         {
             advance();
-            node->returnType = advance().value;
+            node->returnType = parseTypeName();
         }
 
         if (peek().value == "{")
@@ -431,24 +449,7 @@ private:
             if (peek().value == ":")
             {
                 advance();
-                field.type = advance().value;
-                // optional array suffix on field type
-                if (peek().value == "[")
-                {
-                    advance();
-                    if (peek().value == "]")
-                    {
-                        advance();
-                        field.type += "[]";
-                    }
-                    else
-                    {
-                        std::string sz = advance().value;
-                        field.type += "[" + sz + "]";
-                        if (peek().value == "]")
-                            advance();
-                    }
-                }
+                field.type = parseTypeName();
             }
             else
             {

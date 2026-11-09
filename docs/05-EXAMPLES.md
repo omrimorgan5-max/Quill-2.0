@@ -310,17 +310,17 @@ while i < len(str1) {
 }
 ```
 
-## Calling C Code
-
-Embed raw C when needed:
+## Global State
 
 ```quill
-C_top("#include <time.h>");
+let mut timestamp: number = 0;
 
-let timestamp: number;
-C_call("timestamp = time(NULL);");
+fn advance_timestamp(step: number) -> number {
+    timestamp = timestamp + step;
+    return timestamp;
+}
 
-printf("Timestamp: " + timestamp);
+say advance_timestamp(1);
 ```
 
 ## More Examples
@@ -331,13 +331,15 @@ See the `examples/` directory in the repository for additional complete programs
 - `examples/reverse.qsc` — Reverse arrays or strings
 - `examples/rps.qsc` — Rock-Paper-Scissors game
 - `examples/twosum.qsc` — Find pairs that sum to a target
+- `examples/leetcode_practice.qsc` — Quill-only solutions for 12 listed problems, including string arithmetic, vectors, and loop control
+- `examples/struct_values.qsc` — Pass, update, and return a Quill struct value
 - `examples/exponent.qsc` — Calculate exponents
 - `examples/math.example.qsc` — Demonstrate math library functions
 
 Run any example:
 
 ```bash
-./quill-linux --compile examples/palindrome.qsc
+./quill-linux examples/palindrome.qsc
 ./examples/palindrome
 ```
 

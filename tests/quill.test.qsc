@@ -238,3 +238,44 @@ printf(isAdult(20));
 
 # ─── End ─────────────────────────────────────────────────────────────────────
 say "All tests complete.";
+
+fn double_value(value: number) -> number {
+    return value * 2;
+}
+
+let mut modern_value: number = double_value(21);
+let modern_values: Vec<number> = [modern_value, 42];
+say len(modern_values);
+
+fn append_and_update(values: Vec<number>) -> Vec<number> {
+    push(values, 99);
+    values[0] = values[0] + 1;
+    return values;
+}
+
+let changed_values: Vec<number> = append_and_update(modern_values);
+say changed_values[0];
+say changed_values[2];
+
+let global_score: number = 40;
+
+fn update_global(amount: number) -> number {
+    global_score = global_score + amount;
+    return global_score;
+}
+
+say update_global(2);
+
+import "../stdlib/random/random.qsc";
+say random_range(7, 7);
+
+import "../stdlib/string/string.qsc";
+if reverse_string("quill") == "lliuq" && trim_ascii("  Quill\n") == "Quill" {
+    say "PASS string stdlib";
+}
+if contains("standalone", "alone") && startsWith("Quill", "Qui") && endsWith("Quill", "ill") && indexOf("language", "gua") == 3 {
+    say "PASS string builtins";
+}
+if toInt(-4.75) == -4 && toDouble(9) == 9.0 {
+    say "PASS numeric casts";
+}

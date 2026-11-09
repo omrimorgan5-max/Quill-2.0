@@ -1,0 +1,17 @@
+struct Point {
+    x: number,
+    y: number
+}
+
+fn translate(point: Point, dx: number, dy: number) -> Point {
+    point.x = point.x + dx;
+    point.y = point.y + dy;
+    return point;
+}
+
+let origin: Point = Point { x: 2, y: 3 };
+let moved: Point = translate(origin, 3, 4);
+
+if moved.x == 5 && moved.y == 7 {
+    say "PASS struct value parameter and return";
+}

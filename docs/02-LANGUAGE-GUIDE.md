@@ -112,31 +112,46 @@ while x < 5 {
     printf("x: " + x);
     x++;
 }
+
+for value in values {
+    if value < 0 {
+        continue;
+    }
+    if value == 10 {
+        break;
+    }
+}
 ```
 
-## Arrays
+Use `break` to leave the nearest loop and `continue` to move to its next iteration.
 
-Fixed-size arrays are declared with a literal size. Arrays are local to the function they're declared in and cannot be passed as parameters or returned from functions (yet).
+## Arrays and Lists
+
+Fixed-size arrays use a literal size. Growable arrays use `Vec<T>` (or the equivalent `T[]`) and can be passed to and returned from functions.
 
 ```quill
 let stack: number[200];
 stack[0] = 42;
 say stack[0];
+
+let mut values: Vec<number> = [2, 7];
+push(values, 11);
+say values[2];
 ```
 
 All of these array types work:
 - `number[N]`
-- `double[N]`
-- `string[N]`
-- `bool[N]`
-- `char[N]`
+- `Vec<number>` / `number[]`
+- `Vec<double>` / `double[]`
+- `Vec<string>` / `string[]`
+- `Vec<bool>` / `bool[]`
 
 ## Functions
 
-Functions are declared with the `func` keyword. The return type annotation is optional — Quill will infer it from your `return` statements if omitted.
+Functions use Rust-style `fn` and `->` syntax. The older `func` keyword and colon return annotation remain supported. Return types are inferred when omitted.
 
 ```quill
-func add(a: number, b: number): number {
+fn add(a: number, b: number) -> number {
     return a + b;
 }
 
@@ -161,6 +176,25 @@ printMessage("Hi there");
 
 > **Important:** Two functions cannot share the same name anywhere in the program, even across imports.
 
+## Struct Values
+
+Quill structs can be passed to and returned from functions by value:
+
+```quill
+struct Point {
+    x: number,
+    y: number
+}
+
+fn translate(point: Point, dx: number, dy: number) -> Point {
+    point.x = point.x + dx;
+    point.y = point.y + dy;
+    return point;
+}
+```
+
+The function receives a value copy; return the updated value when the caller needs it.
+
 ## Strings
 
 Strings are enclosed in double quotes. You can access individual characters by index:
@@ -175,6 +209,8 @@ String functions:
 ```quill
 len("hello")           # -> 5
 toString(42)           # -> "42"
+charAt("hello", 0)     # -> 'h'
+substring("hello", 1, 4) # -> "ell"
 input(someStringVar)   # reads a full line into a string
 ```
 
@@ -235,14 +271,20 @@ C_call("printf(\"%s\\n\", \"raw C, verbatim\");");
 
 > **Important:** Any backslash you want to survive into the generated C must be doubled. Quill's string lexer un-escapes `\n` before `C_call` sees it — write `\\n` to get a literal `\n` in the C output.
 
-### C_top
+## Global Variables
 
-Splice raw C at file scope, above `main()`. Use this for `#include` statements, global variables, and struct definitions:
+Top-level Quill variables are stored at file scope and initialized before top-level statements run. Functions can read and update them directly:
 
 ```quill
-C_top("#include <math.h>");
-C_top("int global_var = 0;");
+let mut global_count: number = 0;
+
+fn increment_global() -> number {
+    global_count++;
+    return global_count;
+}
 ```
+
+`C_top` is not part of the language.
 
 ## Extern Functions
 

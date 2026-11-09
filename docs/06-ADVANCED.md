@@ -72,41 +72,28 @@ C_call("printf(\"hello\n\");");     # Results in actual newline in C
 C_call("printf(\"hello\\n\");");    # Results in \n in C output
 ```
 
-### C_top
-
-Splice raw C at file scope (above `main()`). Use for `#include`, global variables, and struct definitions:
+### Global Variables
 
 ```quill
-C_top("#include <math.h>");
-C_top("int global_counter = 0;");
-C_top("
-    struct Point {
-        double x;
-        double y;
-    };
-");
+let mut global_counter: number = 0;
+
+fn next_counter() -> number {
+    global_counter++;
+    return global_counter;
+}
 ```
 
-All `C_top` blocks appear in the generated C file before `main()`.
+Top-level variables are file-scope Quill declarations. `C_top` is not supported.
 
 ## Working with Structs
 
-Quill doesn't have built-in struct support, but you can define C structs with `C_top`:
+Quill supports struct declarations directly:
 
 ```quill
-C_top("
-    struct Point {
-        int x;
-        int y;
-    };
-");
-
-C_call("
-    struct Point p;
-    p.x = 10;
-    p.y = 20;
-    printf(\"Point: (%d, %d)\\n\", p.x, p.y);
-");
+struct Point {
+    x: number,
+    y: number
+}
 ```
 
 ## Module Organization
@@ -226,41 +213,40 @@ This is useful for understanding performance characteristics or debugging unexpe
 Since Quill compiles to C and then machine code, you can use standard C debuggers:
 
 ```bash
-# Generate C with debugging symbols
+# Emit C for inspection, then compile it with debugging symbols
+quill --emit-c myfile.qsc -o myfile.c
 gcc -g myfile.c -o myfile_debug
 gdb ./myfile_debug
 ```
 
 ## Limitations & Workarounds
 
-### No Array Parameters/Returns
+### Growable Arrays in Functions
 
-Arrays can't be passed to functions or returned. Workaround: use global state via `C_top`:
+Growable arrays can be passed to functions and returned:
 
 ```quill
-C_top("int global_array[100];");
-
-func processArray() {
-    # Access global_array through C_call
-    C_call("process_data(global_array);");
+fn update(items: Vec<number>) -> Vec<number> {
+    push(items, 10);
+    items[0] = items[0] + 1;
+    return items;
 }
+
+let mut values: Vec<number> = [1, 2];
+let updated: Vec<number> = update(values);
 ```
 
-### No Dynamic Arrays
+### Dynamic Arrays
 
-All arrays are fixed-size. For dynamic allocation, use C:
+Use `Vec<T>` or `T[]` for growable arrays. `push`, `pop`, and `len` are built in.
 
 ```quill
-C_call("
-    int* arr = (int*)malloc(size * sizeof(int));
-    // use arr
-    free(arr);
-");
+let mut values: Vec<number> = [];
+push(values, 5);
+say pop(values);
 ```
 
-### No Hash Maps
-
-No built-in hash map type. For key-value storage, use C structures or arrays with manual lookup.
+Hash maps are available for string keys through `map[string, T]` and the `map_has`, `map_del`, and `map_len` helpers.
 
 ### Two Functions Cannot Share a Name
 
@@ -280,13 +266,7 @@ extern func strcpy(dest: string, src: string): string;
 extern func strcat(dest: string, src: string): string;
 ```
 
-### Including Multiple Headers
-
-```quill
-C_top("#include <math.h>");
-C_top("#include <time.h>");
-C_top("#include <float.h>");
-```
+`C_top` is removed. Use Quill globals, structs, and library functions for program-level declarations.
 
 ## Optimization Tips
 

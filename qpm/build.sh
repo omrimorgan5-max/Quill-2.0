@@ -11,8 +11,6 @@
 # ---- Config -----------------------------------------------------------------
 
 BIN_DIR="bin"
-QUILL_BIN="../bin/quill-linux"
-QPM_SRC="./cmd/qpm/main.qsc"
 VERSION="0.3.0"
 TARGET="linux"
 CLEAN=false
@@ -59,7 +57,8 @@ build_binary() {
     local outfile="$3"
 
     echo -e "\033[90m  Building qpm...\033[0m"
-    $QUILL_BIN -o ./cmd/qpm/main.c $QPM_SRC
+    # qpm's Quill sources still use the removed C_top feature; build its
+    # checked-in generated C snapshot until those sources are migrated.
     gcc -O2 -o ./bin/qpm ./cmd/qpm/qpm_main.c ./cmd/qpm/main.c -Wl,--allow-multiple-definition
     
     if [ $? -ne 0 ]; then
@@ -91,11 +90,6 @@ write_header "qpm Build v$VERSION"
 if [ ! -d "$BIN_DIR" ]; then
     mkdir -p "$BIN_DIR"
     echo -e "\033[90m  Created bin/\033[0m"
-fi
-
-if ! command -v ../bin/quill-linux &> /dev/null; then
-    write_fail "QUILL is not installed or not in PATH"
-    exit 1
 fi
 
 # ---- Builds -----------------------------------------------------------------

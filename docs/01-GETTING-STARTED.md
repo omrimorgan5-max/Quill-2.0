@@ -13,7 +13,7 @@ Quill is a statically-typed programming language designed for **fast, numeric co
 - **Statically Typed** — Type errors caught at compile time
 - **Simple & Clean Syntax** — Readable code with optional semicolons and minimal boilerplate
 - **Cross-Platform** — Native support for Linux and Windows
-- **C Interop** — Call C libraries directly or drop into raw C when needed
+- **C Interop** — Call linked C functions with typed signatures or use a raw C statement when needed
 
 ## Installation
 
@@ -47,14 +47,14 @@ say "Hello, Quill!";
 Compile and run it:
 
 ```bash
-./quill-linux --compile hello.qsc
+./quill-linux hello.qsc
 ./hello
 ```
 
 Or in one step with the `-o` flag to specify output:
 
 ```bash
-./quill-linux --compile hello.qsc -o hello_binary
+./quill-linux -o hello_binary hello.qsc
 ./hello_binary
 ```
 
@@ -62,27 +62,27 @@ Or in one step with the `-o` flag to specify output:
 
 ### Compiling to a Native Binary
 
-Transpile to C and compile to an executable:
+Compile to an executable (this is the default):
 
 ```bash
-quill-[os] --compile myfile.qsc
+quill-[os] myfile.qsc
 ```
 
-This generates a C file and compiles it to a binary with the same name (minus `.qsc`).
+The generated C source is temporary and removed after compilation.
 
 ### Transpiling to C Only
 
 Generate C code without compiling:
 
 ```bash
-quill-[os] myfile.qsc -o output.c
+quill-[os] --emit-c myfile.qsc -o output.c
 ```
 
 This is useful if you want to inspect the generated C or compile with custom C flags.
 
 ### Output File Naming
 
-By default, the output name matches the input (e.g., `program.qsc` → `program.c` or `program`). Use `-o` to specify a custom name:
+By default, the executable name matches the input (e.g., `program.qsc` → `program`). Use `-o` to specify a custom name:
 
 ```bash
 quill-[os] myfile.qsc -o my_output

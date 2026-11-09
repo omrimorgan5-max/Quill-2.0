@@ -16,6 +16,7 @@
 
 namespace
 {
+    std::map<std::string, std::vector<std::string>> functionParameterTypes;
 
     std::string trim(const std::string &value)
     {
@@ -33,6 +34,39 @@ namespace
 
         return value.substr(start, end - start);
     }
+
+    std::string escapeCString(const std::string &value)
+    {
+        std::ostringstream escaped;
+        for (unsigned char character : value)
+        {
+            switch (character)
+            {
+            case '\\': escaped << "\\\\"; break;
+            case '"': escaped << "\\\""; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
+            case '\b': escaped << "\\b"; break;
+            case '\f': escaped << "\\f"; break;
+            case '\v': escaped << "\\v"; break;
+            default:
+                if (character < 32 || character >= 127)
+                {
+                    escaped << '\\'
+                            << static_cast<char>('0' + ((character >> 6) & 7))
+                            << static_cast<char>('0' + ((character >> 3) & 7))
+                            << static_cast<char>('0' + (character & 7));
+                }
+                else
+                {
+                    escaped << static_cast<char>(character);
+                }
+            }
+        }
+        return escaped.str();
+    }
+
     std::string convertTypeName(const std::string &typeName)
     {
         if (typeName == "number")
@@ -47,6 +81,14 @@ namespace
             return "void";
         if (typeName == "char")
             return "char";
+        if (typeName == "number[]")
+            return "quill_arr_int";
+        if (typeName == "double[]")
+            return "quill_arr_double";
+        if (typeName == "string[]")
+            return "quill_arr_str";
+        if (typeName == "bool[]")
+            return "quill_arr_bool";
         return typeName;
     }
 
@@ -69,7 +111,9 @@ namespace
             return "number";
         if (type == "void")
             return "void";
-        if (!type.empty() && type.find('[') == std::string::npos)
+        if (!type.empty() && type.find('[') != std::string::npos)
+            return type;
+        if (!type.empty())
             return type;
         return "number";
     }
@@ -113,6 +157,32 @@ namespace
         if (elem == "string")
             return "quill_arr_str";
         return "quill_arr_int";
+    }
+
+    bool isArrayReferenceType(const std::string &type)
+    {
+        return type.size() >= 4 && type.compare(type.size() - 4, 4, "@ref") == 0;
+    }
+
+    bool isGlobalType(const std::string &type)
+    {
+        return type.size() >= 7 && type.compare(type.size() - 7, 7, "@global") == 0;
+    }
+
+    std::string sourceTypeName(const std::string &type)
+    {
+        if (isArrayReferenceType(type))
+            return type.substr(0, type.size() - 4);
+        if (isGlobalType(type))
+            return type.substr(0, type.size() - 7);
+        return type;
+    }
+
+    std::string generatedVariableName(const std::string &name,
+                                      const std::map<std::string, std::string> &scope)
+    {
+        auto it = scope.find(name);
+        return it != scope.end() && isGlobalType(it->second) ? "quill_global_" + name : name;
     }
 
     bool isMapType(const std::string &t)
@@ -164,7 +234,7 @@ namespace
         if (auto *ident = dynamic_cast<Identifier *>(node))
         {
             auto it = scope.find(ident->name);
-            return it != scope.end() ? it->second : "number";
+            return it != scope.end() ? sourceTypeName(it->second) : "number";
         }
 
         // Indexing yields either a character code (indexing a plain
@@ -295,9 +365,30 @@ namespace
         std::map<std::string, std::string> scope;
         for (const Param &p : params)
         {
-            scope[p.name] = p.type.empty() ? "number" : normalizeTypeName(p.type);
+            std::string type = p.type.empty() ? "number" : normalizeTypeName(p.type);
+            if (isDynamicArrayType(type))
+                type += "@ref";
+            scope[p.name] = type;
         }
         collectDeclaredLocals(body, scope, functionReturnTypes);
+        return scope;
+    }
+
+    std::map<std::string, std::string> buildTopLevelScope(
+        const Program &program,
+        const std::map<std::string, std::string> &functionReturnTypes)
+    {
+        std::map<std::string, std::string> scope;
+        for (Node *node : program.body)
+        {
+            if (dynamic_cast<VariableDeclaration *>(node))
+            {
+                std::vector<Node *> declaration{node};
+                collectDeclaredLocals(declaration, scope, functionReturnTypes);
+            }
+        }
+        for (auto &symbol : scope)
+            symbol.second += "@global";
         return scope;
     }
 
@@ -356,6 +447,10 @@ namespace
             {
                 candidate = inferFunctionReturnType(loop->body, scope, functionReturnTypes);
             }
+            else if (auto *loop = dynamic_cast<ForLoop *>(node))
+            {
+                candidate = inferFunctionReturnType(loop->body, scope, functionReturnTypes);
+            }
 
             found = combineReturnTypes(found, candidate);
         }
@@ -367,6 +462,15 @@ namespace
         std::map<std::string, std::string> types;
         types["len"] = "number";
         types["toString"] = "string";
+        types["toInt"] = "number";
+        types["toDouble"] = "double";
+        types["toChar"] = "char";
+        types["charAt"] = "char";
+        types["substring"] = "string";
+        types["contains"] = "bool";
+        types["startsWith"] = "bool";
+        types["endsWith"] = "bool";
+        types["indexOf"] = "number";
         types["push"] = "void";
         types["pop"] = "number";
         types["read_file"] = "string";
@@ -377,6 +481,7 @@ namespace
         types["map_has"] = "bool";
         types["map_len"] = "number";
         types["map_del"] = "void";
+        std::map<std::string, std::string> globalScope = buildTopLevelScope(program, types);
 
         for (Node *node : program.body)
         {
@@ -389,8 +494,26 @@ namespace
                 else
                 {
                     std::map<std::string, std::string> scope = buildScope(fn->params, fn->body, types);
+                    for (const auto &global : globalScope)
+                        scope.emplace(global);
                     types[fn->name] = inferFunctionReturnType(fn->body, scope, types);
                 }
+            }
+        }
+        return types;
+    }
+
+    std::map<std::string, std::vector<std::string>> buildFunctionParameterTypes(const Program &program)
+    {
+        std::map<std::string, std::vector<std::string>> types;
+        for (Node *node : program.body)
+        {
+            if (auto *fn = dynamic_cast<Function *>(node))
+            {
+                std::vector<std::string> parameterTypes;
+                for (const Param &param : fn->params)
+                    parameterTypes.push_back(param.type.empty() ? "number" : normalizeTypeName(param.type));
+                types[fn->name] = parameterTypes;
             }
         }
         return types;
@@ -399,6 +522,28 @@ namespace
     std::string astToC(Node *node,
                        const std::map<std::string, std::string> &scope,
                        const std::map<std::string, std::string> &functionReturnTypes);
+
+    std::string arrayAddress(Node *node,
+                             const std::map<std::string, std::string> &scope,
+                             const std::map<std::string, std::string> &functionReturnTypes)
+    {
+        if (auto *ident = dynamic_cast<Identifier *>(node))
+        {
+            auto it = scope.find(ident->name);
+            if (it != scope.end() && isArrayReferenceType(it->second))
+                return ident->name;
+        }
+        return "&(" + astToC(node, scope, functionReturnTypes) + ")";
+    }
+
+    bool isArrayReference(Node *node, const std::map<std::string, std::string> &scope)
+    {
+        auto *ident = dynamic_cast<Identifier *>(node);
+        if (!ident)
+            return false;
+        auto it = scope.find(ident->name);
+        return it != scope.end() && isArrayReferenceType(it->second);
+    }
 
     std::string toCStringExpr(Node *node,
                               const std::map<std::string, std::string> &scope,
@@ -458,8 +603,11 @@ namespace
                 }
                 if (decl->value)
                 {
+                    std::string valueCode = astToC(decl->value, scope, functionReturnTypes);
+                    if (isArrayReference(decl->value, scope))
+                        valueCode = "*" + valueCode;
                     return ctype + " " + decl->identifier + " = " +
-                           astToC(decl->value, scope, functionReturnTypes) + ";";
+                           valueCode + ";";
                 }
                 return ctype + " " + decl->identifier + " = " + pref + "_new();";
             }
@@ -498,7 +646,7 @@ namespace
 
         if (auto *assign = dynamic_cast<Assignment *>(node))
         {
-            return assign->identifier + " = " + astToC(assign->value, scope, functionReturnTypes) + ";";
+            return generatedVariableName(assign->identifier, scope) + " = " + astToC(assign->value, scope, functionReturnTypes) + ";";
         }
 
         if (auto *idxAssign = dynamic_cast<IndexAssignment *>(node))
@@ -515,13 +663,24 @@ namespace
             if (isDynamicArrayType(objType))
             {
                 std::string pref = dynArrPrefix(arrayElemType(objType));
-                return pref + "_set(&" + objCode + ", " + idxCode + ", " + valCode + ");";
+                return pref + "_set(" + arrayAddress(idxAssign->object, scope, functionReturnTypes) + ", " + idxCode + ", " + valCode + ");";
             }
             return objCode + "[" + idxCode + "] = " + valCode + ";";
         }
 
         if (auto *bin = dynamic_cast<BinaryExpression *>(node))
         {
+            if (bin->op == "==" || bin->op == "!=")
+            {
+                std::string leftType = inferNodeType(bin->left, scope, functionReturnTypes);
+                std::string rightType = inferNodeType(bin->right, scope, functionReturnTypes);
+                if (leftType == "string" && rightType == "string")
+                {
+                    std::string comparison = "strcmp(" + astToC(bin->left, scope, functionReturnTypes) + ", " +
+                                            astToC(bin->right, scope, functionReturnTypes) + ")";
+                    return "(" + comparison + (bin->op == "==" ? " == 0)" : " != 0)");
+                }
+            }
             if (bin->op == "+")
             {
                 std::string leftType = inferNodeType(bin->left, scope, functionReturnTypes);
@@ -549,7 +708,7 @@ namespace
         if (auto *litBool = dynamic_cast<LiteralBool *>(node))
             return litBool->value ? "true" : "false";
         if (auto *litStr = dynamic_cast<LiteralString *>(node))
-            return "\"" + litStr->value + "\"";
+            return "\"" + escapeCString(litStr->value) + "\"";
         if (auto *litChar = dynamic_cast<LiteralChar *>(node)) {
             // Emit a proper C character constant
             char c = static_cast<char>(litChar->value);
@@ -565,7 +724,7 @@ namespace
             return std::to_string(static_cast<int>(static_cast<unsigned char>(c)));
         }
         if (auto *ident = dynamic_cast<Identifier *>(node))
-            return ident->name;
+            return generatedVariableName(ident->name, scope);
 
         if (auto *idx = dynamic_cast<IndexExpression *>(node))
         {
@@ -580,7 +739,7 @@ namespace
             if (isDynamicArrayType(objType))
             {
                 std::string pref = dynArrPrefix(arrayElemType(objType));
-                return pref + "_get(&" + objCode + ", " + idxCode + ")";
+                return pref + "_get(" + arrayAddress(idx->object, scope, functionReturnTypes) + ", " + idxCode + ")";
             }
             return objCode + "[" + idxCode + "]";
         }
@@ -614,11 +773,11 @@ namespace
 
         if (auto *inc = dynamic_cast<Increment *>(node))
         {
-            return inc->identifier + "++;";
+            return generatedVariableName(inc->identifier, scope) + "++;";
         }
         if (auto *dec = dynamic_cast<Decrement *>(node))
         {
-            return dec->identifier + "--;";
+            return generatedVariableName(dec->identifier, scope) + "--;";
         }
 
         if (auto *ifStmt = dynamic_cast<IfStatement *>(node))
@@ -627,7 +786,10 @@ namespace
             block << "if (" << astToC(ifStmt->condition, scope, functionReturnTypes) << ") {\n";
             for (Node *stmt : ifStmt->consequent)
             {
-                block << "        " << astToC(stmt, scope, functionReturnTypes) << "\n";
+                std::string code = astToC(stmt, scope, functionReturnTypes);
+                if (!code.empty() && code.back() != ';' && code.back() != '}')
+                    code += ";";
+                block << "        " << code << "\n";
             }
             block << "    }";
             if (!ifStmt->alternate.empty())
@@ -635,7 +797,10 @@ namespace
                 block << " else {\n";
                 for (Node *stmt : ifStmt->alternate)
                 {
-                    block << "        " << astToC(stmt, scope, functionReturnTypes) << "\n";
+                    std::string code = astToC(stmt, scope, functionReturnTypes);
+                    if (!code.empty() && code.back() != ';' && code.back() != '}')
+                        code += ";";
+                    block << "        " << code << "\n";
                 }
                 block << "    }";
             }
@@ -648,7 +813,10 @@ namespace
             block << "while (" << astToC(loop->condition, scope, functionReturnTypes) << ") {\n";
             for (Node *stmt : loop->body)
             {
-                block << "        " << astToC(stmt, scope, functionReturnTypes) << "\n";
+                std::string code = astToC(stmt, scope, functionReturnTypes);
+                if (!code.empty() && code.back() != ';' && code.back() != '}')
+                    code += ";";
+                block << "        " << code << "\n";
             }
             block << "    }";
             return block.str();
@@ -673,9 +841,9 @@ namespace
                 {
                     std::string pref = dynArrPrefix(arrayElemType(colType));
                     std::string elemC = convertTypeName(arrayElemType(colType));
-                    block << "for (int __qi = 0; __qi < " << pref << "_len(&" << col << "); __qi++) {\n";
+                      block << "for (int __qi = 0; __qi < " << pref << "_len(" << arrayAddress(fl->collection, scope, functionReturnTypes) << "); __qi++) {\n";
                     block << "        " << elemC << " " << fl->iterator << " = "
-                          << pref << "_get(&" << col << ", __qi);\n";
+                          << pref << "_get(" << arrayAddress(fl->collection, scope, functionReturnTypes) << ", __qi);\n";
                 }
                 else if (isArrayTypeName(colType))
                 {
@@ -767,10 +935,16 @@ namespace
         {
             if (ret->value)
             {
-                return "return " + astToC(ret->value, scope, functionReturnTypes) + ";";
+                std::string valueCode = astToC(ret->value, scope, functionReturnTypes);
+                if (isArrayReference(ret->value, scope))
+                    valueCode = "*" + valueCode;
+                return "return " + valueCode + ";";
             }
             return "return;";
         }
+
+        if (auto *control = dynamic_cast<LoopControl *>(node))
+            return control->keyword + ";";
 
         if (auto *call = dynamic_cast<CallExpression *>(node))
         {
@@ -784,7 +958,68 @@ namespace
                 argTypes.push_back(inferNodeType(arg, scope, functionReturnTypes));
             }
 
-            if (name == "print")
+            if (name == "C_top")
+                throw std::runtime_error("C_top has been removed; declare top-level variables and structs in Quill.");
+
+            auto parameterTypes = functionParameterTypes.find(name);
+            if (parameterTypes != functionParameterTypes.end())
+            {
+                for (std::size_t i = 0; i < argCodes.size() && i < parameterTypes->second.size(); ++i)
+                {
+                    if (isDynamicArrayType(parameterTypes->second[i]) && isDynamicArrayType(argTypes[i]))
+                    {
+                        if (!isArrayReference(call->arguments[i], scope))
+                            argCodes[i] = "&(" + argCodes[i] + ")";
+                    }
+                }
+            }
+
+            if (name == "random_int" && argCodes.empty())
+            {
+                return "quill_random_int()";
+            }
+            else if (name == "toInt" && argCodes.size() == 1)
+            {
+                return "((int)" + argCodes[0] + ")";
+            }
+            else if (name == "toDouble" && argCodes.size() == 1)
+            {
+                return "((double)" + argCodes[0] + ")";
+            }
+            else if (name == "toChar" && argCodes.size() == 1)
+            {
+                return "((char)" + argCodes[0] + ")";
+            }
+            else if (name == "charAt" && argCodes.size() == 2)
+            {
+                return "((char)(" + argCodes[0] + ")[" + argCodes[1] + "])";
+            }
+            else if (name == "substring" && argCodes.size() == 3)
+            {
+                return "quill_substring(" + argCodes[0] + ", " + argCodes[1] + ", " + argCodes[2] + ")";
+            }
+            else if (name == "contains" && argCodes.size() == 2)
+            {
+                return "(strstr(" + argCodes[0] + ", " + argCodes[1] + ") != NULL)";
+            }
+            else if (name == "startsWith" && argCodes.size() == 2)
+            {
+                return "(strncmp(" + argCodes[0] + ", " + argCodes[1] + ", strlen(" + argCodes[1] + ")) == 0)";
+            }
+            else if (name == "endsWith" && argCodes.size() == 2)
+            {
+                return "(strlen(" + argCodes[0] + ") >= strlen(" + argCodes[1] + ") && strcmp(" + argCodes[0] +
+                       " + strlen(" + argCodes[0] + ") - strlen(" + argCodes[1] + "), " + argCodes[1] + ") == 0)";
+            }
+            else if (name == "indexOf" && argCodes.size() == 2)
+            {
+                return "quill_index_of(" + argCodes[0] + ", " + argCodes[1] + ")";
+            }
+            else if (name == "random_range_int" && argCodes.size() == 2)
+            {
+                return "quill_random_range_int(" + argCodes[0] + ", " + argCodes[1] + ")";
+            }
+            else if (name == "print")
             {
                 name = "printf";
             }
@@ -799,7 +1034,7 @@ namespace
                 if (isDynamicArrayType(t))
                 {
                     std::string pref = dynArrPrefix(arrayElemType(t));
-                    return pref + "_len(&" + argCodes[0] + ")";
+                    return pref + "_len(" + arrayAddress(call->arguments[0], scope, functionReturnTypes) + ")";
                 }
                 if (isArrayTypeName(t) && !isDynamicArrayType(t))
                 {
@@ -851,7 +1086,7 @@ namespace
                 if (!isDynamicArrayType(t))
                     return "/* push requires dynamic array */ 0";
                 std::string pref = dynArrPrefix(arrayElemType(t));
-                return pref + "_push(&" + argCodes[0] + ", " + argCodes[1] + ")";
+                return pref + "_push(" + arrayAddress(call->arguments[0], scope, functionReturnTypes) + ", " + argCodes[1] + ")";
             }
             else if (name == "pop" && argCodes.size() == 1)
             {
@@ -859,10 +1094,12 @@ namespace
                 if (!isDynamicArrayType(t))
                     return "/* pop requires dynamic array */ 0";
                 std::string pref = dynArrPrefix(arrayElemType(t));
-                return pref + "_pop(&" + argCodes[0] + ")";
+                return pref + "_pop(" + arrayAddress(call->arguments[0], scope, functionReturnTypes) + ")";
             }
-            else if ((name == "C_call" || name == "C_top") && argCodes.size() == 1)
+            else if (name == "C_call" && argCodes.size() == 1)
             {
+                if (auto *raw = dynamic_cast<LiteralString *>(call->arguments[0]))
+                    return raw->value;
 
                 std::string &targetStr = argCodes[0];
 
@@ -1031,6 +1268,7 @@ namespace
             // explicitly annotated and inferred -- instead of
             // maintaining a second, weaker copy of that logic.
             std::map<std::string, std::string> functionReturnTypes = buildFunctionReturnTypes(program);
+            functionParameterTypes = buildFunctionParameterTypes(program);
 
             // Type-checking runs on the *expanded* program -- otherwise
             // anything defined only in an imported file would never be
@@ -1049,18 +1287,14 @@ namespace
                 }
             }
 
+            std::map<std::string, std::string> globalScope = buildTopLevelScope(program, functionReturnTypes);
             std::map<std::string, std::string> mainScope = buildScope({}, program.body, functionReturnTypes);
+            for (const auto &global : globalScope)
+                mainScope[global.first] = global.second;
 
             std::vector<std::string> functionBlocks;
             std::vector<std::string> mainLines;
 
-            // A C_call() written directly at the top level (not nested
-            // inside any function, if, or while) is raw C meant to sit
-            // at file scope -- #include lines, struct/typedef
-            // definitions, extern globals -- not inside main(). A
-            // C_call() written *inside* a function or loop body still
-            // ends up exactly where it already did, since this only
-            // special-cases the flat top-level statement list.
             std::vector<std::string> preambleLines;
 
             for (Node *node : program.body)
@@ -1070,9 +1304,8 @@ namespace
 
                 if (auto *fnNode = dynamic_cast<Function *>(node))
                 {
-                    // extern functions are signature-only -- the real
-                    // implementation is whatever library the student
-                    // linked (already declared via a C_top() #include).
+                    // Extern functions are signature-only; their implementations
+                    // are provided by the linked runtime or library.
                     // Nothing to emit here; buildFunctionReturnTypes()
                     // already picked up its return type from
                     // fnNode->returnType regardless of isExtern, so
@@ -1085,6 +1318,8 @@ namespace
 
                     std::map<std::string, std::string> scope =
                         buildScope(fnNode->params, fnNode->body, functionReturnTypes);
+                    for (const auto &global : globalScope)
+                        scope.emplace(global);
 
                     std::string returnType = convertTypeName(functionReturnTypes.at(fnNode->name));
 
@@ -1093,8 +1328,11 @@ namespace
                     {
                         if (i > 0)
                             params += ", ";
-                        params += convertTypeName(normalizeTypeName(fnNode->params[i].type)) +
-                                  " " + fnNode->params[i].name;
+                        std::string paramType = fnNode->params[i].type.empty()
+                                                    ? "number"
+                                                    : normalizeTypeName(fnNode->params[i].type);
+                        params += convertTypeName(paramType) +
+                                  (isDynamicArrayType(paramType) ? " *" : " ") + fnNode->params[i].name;
                     }
                     if (params.empty())
                         params = "void";
@@ -1122,19 +1360,43 @@ namespace
                     if (!code.empty())
                         preambleLines.push_back(code);
                 }
-                else if (auto *topCall = dynamic_cast<CallExpression *>(node);
-                         topCall && topCall->callee == "C_top")
+                else if (auto *decl = dynamic_cast<VariableDeclaration *>(node))
                 {
-                    // C_top(), unlike C_call(), always lands at file
-                    // scope above main() -- for #include directives,
-                    // struct/typedef definitions, extern globals, or
-                    // whole helper function definitions. C_call() keeps
-                    // its original meaning unchanged: it runs wherever
-                    // it's textually written, top-level or not.
-                    std::string code = astToC(node, mainScope, functionReturnTypes);
-                    if (!code.empty())
+                    std::string typeName = sourceTypeName(globalScope.at(decl->identifier));
+                    std::string globalName = "quill_global_" + decl->identifier;
+                    if (isMapType(typeName))
                     {
-                        preambleLines.push_back(code);
+                        preambleLines.push_back(mapRuntimeName(mapValType(typeName)) + " " + globalName + " = {0};");
+                    }
+                    else if (isDynamicArrayType(typeName))
+                    {
+                        preambleLines.push_back(dynArrCType(arrayElemType(typeName)) + " " + globalName + " = {0};");
+                        if (auto *literal = dynamic_cast<ArrayLiteral *>(decl->value))
+                        {
+                            std::string prefix = dynArrPrefix(arrayElemType(typeName));
+                            for (Node *element : literal->elements)
+                                mainLines.push_back(prefix + "_push(&" + globalName + ", " + astToC(element, mainScope, functionReturnTypes) + ");");
+                        }
+                        else if (decl->value)
+                        {
+                            mainLines.push_back(globalName + " = " + astToC(decl->value, mainScope, functionReturnTypes) + ";");
+                        }
+                    }
+                    else if (isArrayTypeName(typeName))
+                    {
+                        std::size_t bracket = typeName.find('[');
+                        preambleLines.push_back(convertTypeName(typeName.substr(0, bracket)) + " " + globalName + typeName.substr(bracket) + " = {0};");
+                        if (auto *literal = dynamic_cast<ArrayLiteral *>(decl->value))
+                        {
+                            for (std::size_t i = 0; i < literal->elements.size(); ++i)
+                                mainLines.push_back(globalName + "[" + std::to_string(i) + "] = " + astToC(literal->elements[i], mainScope, functionReturnTypes) + ";");
+                        }
+                    }
+                    else
+                    {
+                        preambleLines.push_back(convertTypeName(typeName) + " " + globalName + " = {0};");
+                        if (decl->value)
+                            mainLines.push_back(globalName + " = " + astToC(decl->value, mainScope, functionReturnTypes) + ";");
                     }
                 }
                 else
@@ -1152,9 +1414,11 @@ namespace
             }
 
             std::ostringstream out;
-            out << "#include <stdio.h>\n#include <stdbool.h>\n#include <stdint.h>\n#include <string.h>\n#include <stdlib.h>\n#include <ctype.h>\n\n";
+            out << "#include <stdio.h>\n#include <stdbool.h>\n#include <stdint.h>\n#include <string.h>\n#include <stdlib.h>\n#include <ctype.h>\n#include <time.h>\n#include <math.h>\n\n";
+            out << "static int quill_random_seeded = 0;\nstatic void quill_ensure_random_seeded(void) { if (!quill_random_seeded) { srand((unsigned int)time(NULL)); quill_random_seeded = 1; } }\nstatic int quill_random_int(void) { quill_ensure_random_seeded(); return rand(); }\nstatic int quill_random_range_int(int lo, int hi) { quill_ensure_random_seeded(); if (lo > hi) { int t = lo; lo = hi; hi = t; } if (lo == hi) return lo; return lo + rand() % (hi - lo + 1); }\n\n";
             out << "static char* quill_concat(const char* a, const char* b) {\n    size_t lenA = a ? strlen(a) : 0;\n    size_t lenB = b ? strlen(b) : 0;\n    char* result = (char*)malloc(lenA + lenB + 1);\n    if (!result) { return NULL; }\n    if (lenA > 0) memcpy(result, a, lenA);\n    if (lenB > 0) memcpy(result + lenA, b, lenB);\n    result[lenA + lenB] = '\\0';\n    return result;\n}\n\n";
             out << "static char* quill_dup(const char* s) {\n    size_t len = strlen(s);\n    char* out = (char*)malloc(len + 1);\n    if (!out) { return NULL; }\n    memcpy(out, s, len + 1);\n    return out;\n}\n\n";
+            out << "static char* quill_substring(const char* value, int start, int end) {\n    int length = (int)strlen(value);\n    if (start < 0) start = 0;\n    if (start > length) start = length;\n    if (end < start) end = start;\n    if (end > length) end = length;\n    size_t count = (size_t)(end - start);\n    char* result = (char*)malloc(count + 1);\n    if (!result) return NULL;\n    memcpy(result, value + start, count);\n    result[count] = '\\0';\n    return result;\n}\n\nstatic int quill_index_of(const char* value, const char* part) {\n    const char* found = strstr(value, part);\n    return found ? (int)(found - value) : -1;\n}\n\n";
             out << "static char* quill_itoa(long long v) {\n    char buffer[32];\n    snprintf(buffer, sizeof(buffer), \"%lld\", v);\n    return quill_dup(buffer);\n}\n\n";
             out << "static char* quill_ftoa(double v) {\n    char buffer[64];\n    snprintf(buffer, sizeof(buffer), \"%f\", v);\n    return quill_dup(buffer);\n}\n\n";
 
@@ -1487,196 +1751,8 @@ namespace
 
 } // namespace
 
-std::string replaceExtension(const std::string &path, const std::string &newExt)
+std::string transpileSource(const std::string &source, const std::string &baseDir, bool typeCheck)
 {
-    std::size_t dot = path.find_last_of('.');
-    if (dot == std::string::npos)
-    {
-        return path + newExt;
-    }
-    return path.substr(0, dot) + newExt;
-}
-
-int main(int argc, char **argv)
-{
-    bool debug = false;
-    bool version = false;
-    bool interpret = false;
-    bool transpileMode = false;
-    bool compileC = false;
-    bool typeCheck = false;
-    bool format = false;
-    std::string outputPath;
-    std::vector<std::string> args;
-
-    for (int i = 1; i < argc; ++i)
-    {
-        std::string arg = argv[i];
-        if (arg == "--debug")
-        {
-            debug = true;
-        }
-        else if (arg == "--version" || arg == "-v")
-        {
-            version = true;
-        }
-        else if (arg == "--interpret")
-        {
-            interpret = true;
-        }
-        else if (arg == "--transpile")
-        {
-            transpileMode = true;
-        }
-        else if (arg == "--compile")
-        {
-            compileC = true;
-        }
-        else if (arg == "-tc" || arg == "--typeCheck")
-        {
-            typeCheck = true;
-        }
-        else if (arg == "-o" || arg == "--output")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "missing value for " << arg << "\n";
-                return 1;
-            }
-            outputPath = argv[++i];
-        }
-        else if (arg == "-f" || arg == "--format")
-        {
-            format = true;
-        }
-        else
-        {
-            args.push_back(arg);
-        }
-    }
-
-    if (version)
-    {
-        std::cout << "Quill version: 2.4.2\n";
-        return 0;
-    }
-
-    if (args.size() != 1)
-    {
-        std::cerr << "Usage: quill [--compile] [-o output] <input.qsc>\n";
-        return 1;
-    }
-
-    if (!transpileMode)
-    {
-        transpileMode = true;
-    }
-
-    std::string inputPath = args[0];
-
-    std::ifstream input(inputPath);
-    if (!input.is_open())
-    {
-        std::cerr << "failed to open input file: " << inputPath << "\n";
-        return 1;
-    }
-
-    std::string source((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-
-    // Relative import paths inside this file resolve against its own
-    // directory, so `import "helpers.qsc";` works regardless of which
-    // directory quillc itself was invoked from.
-    std::size_t slashPos = inputPath.find_last_of('/');
-    std::string baseDir = slashPos == std::string::npos ? "" : inputPath.substr(0, slashPos);
-
-    if (debug)
-    {
-        Lexer debugLexer(source);
-        std::vector<Token> debugTokens = debugLexer.tokenize();
-        std::cout << "=== LEXING ===\n";
-        for (std::size_t i = 0; i < debugTokens.size() && i < 30; ++i)
-        {
-            std::cout << "  [" << i << "] type=" << static_cast<int>(debugTokens[i].type) << " value='" << debugTokens[i].value << "'\n";
-        }
-    }
-
-    // Lexing, parsing, import expansion, duplicate-function checking,
-    // and type checking all happen inside transpile() now, against the
-    // fully expanded program -- see the comment on expandImports() for
-    // why that matters. Any failure at any of those stages throws, and
-    // is reported here with whatever message the failing stage attached
-    // (already prefixed appropriately, e.g. "Type error: ...").
     Transpiler transpiler;
-    std::string cOutput;
-    try
-    {
-        cOutput = transpiler.transpile(source, baseDir, typeCheck);
-    }
-    catch (const std::exception &ex)
-    {
-        std::cerr << ex.what() << "\n";
-        return 1;
-    }
-
-    std::string cPath = outputPath.empty() ? replaceExtension(inputPath, ".c") : outputPath;
-    if (compileC && !outputPath.empty() && outputPath.find(".c") == std::string::npos)
-    {
-        cPath = outputPath + ".c";
-    }
-
-    std::ofstream outputFile(cPath);
-    if (!outputFile.is_open())
-    {
-        std::cerr << "failed to open output file: " << cPath << "\n";
-        return 1;
-    }
-
-    outputFile << cOutput;
-    outputFile.close();
-
-    if (debug)
-    {
-        std::cout << "=== OUTPUT ===\n";
-        std::cout << "  wrote: " << cPath << "\n";
-    }
-
-
-    if (!compileC)
-    {
-        return 0;
-    }
-
-    std::string binaryPath = outputPath.empty() ? replaceExtension(inputPath, "") : outputPath;
-    if (outputPath.empty())
-    {
-        binaryPath = replaceExtension(inputPath, "");
-    }
-    if (outputPath.find(".c") != std::string::npos)
-    {
-        binaryPath = outputPath.substr(0, outputPath.size() - 2);
-    }
-    if (format) 
-    {
-        std::string formatCommand = "clang-format -style=Google -i " + cPath + "";
-        int result = std::system(formatCommand.c_str());
-        if (result != 0)
-        {
-            std::cerr << "failed to compile generated C: " << cPath << "\n";
-            return 1;
-        }
-    }
-
-    std::string gccCommand = "gcc -std=c11 -Wall -Wextra -pedantic -Wno-unused-function \"" + cPath + "\" -o \"" + binaryPath + "\"";
-    int result = std::system(gccCommand.c_str());
-    if (result != 0)
-    {
-        std::cerr << "failed to compile generated C: " << cPath << "\n";
-        return 1;
-    }
-
-    if (debug)
-    {
-        std::cout << "  compiled to: " << binaryPath << "\n";
-    }
-    return 0;
+    return transpiler.transpile(source, baseDir, typeCheck);
 }
