@@ -50,9 +50,11 @@ public:
                     symbols[decl->identifier] = inferType(decl->value);
             }
         }
+        currentReturnType = "number";
         for (::Node* stmt : program.body) {
             checkNode(stmt);
         }
+        currentReturnType.clear();
     }
 
 private:
@@ -330,8 +332,9 @@ private:
             if (declArr && valArr) {
                 std::string declElem = decl->declaredType.substr(0, decl->declaredType.find('['));
                 std::string valElem = valueType.substr(0, valueType.find('['));
-                if (declElem != valElem)
-                    throw std::runtime_error("type mismatch for variable: " + decl->identifier);
+                if (declElem != valElem && valElem != "unknown")
+                    throw std::runtime_error("type mismatch for variable: " + decl->identifier +
+                                             " (expected " + decl->declaredType + ", got " + valueType + ")");
             } else if (decl->declaredType != valueType && valueType != "unknown") {
                 // allow struct name match when value is struct literal
                 if (!(structFields.count(decl->declaredType) && valueType == decl->declaredType))
@@ -396,7 +399,7 @@ private:
 
         if (auto* lit = dynamic_cast<ArrayLiteral*>(node)) {
             if (lit->elements.empty())
-                return "number[]";
+                return "unknown[]";
             std::string elem = inferType(lit->elements[0]);
             for (size_t i = 1; i < lit->elements.size(); i++) {
                 std::string t = inferType(lit->elements[i]);

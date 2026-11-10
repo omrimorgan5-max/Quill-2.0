@@ -35,12 +35,29 @@ chmod +x quill-linux
 ## Usage
 
 ```bash
-# Compile to a native binary (default)
+# Compile to a native binary with the LLVM backend (default)
 quill-[os] myfile.qsc
+
+# Use the C compatibility backend for features not yet supported by LLVM
+quill-[os] --backend c myfile.qsc
 
 # Emit C only; do not compile
 quill-[os] --emit-c myfile.qsc -o output.c
+
+# Emit LLVM IR only; do not compile
+quill-[os] --emit-llvm myfile.qsc -o output.ll
 ```
+
+## Compiler Bootstrap
+
+Quill includes a stage-0 compiler pipeline written in Quill. It tokenizes and structurally validates source, then compiles a small numeric subset to LLVM IR:
+
+```bash
+bash bootstrap.sh examples/bootstrap_program.qsc /tmp/quill-bootstrap-program
+/tmp/quill-bootstrap-program
+```
+
+The stage-0 subset handles integer declarations and assignments, numeric functions and calls, returns, arithmetic, comparisons, `if`/`else`, `while`, and `say`/`printf`. It is built by the production compiler and does not yet compile its own source; strings, collections, and general type/code generation remain to be ported.
 
 ---
 
@@ -325,9 +342,9 @@ Quill/
 * [ ] Structured error handling (`try` / `catch`)
 
 ### Compiler backend
-* [x] C++ transpiler pipeline (current: Quill → C → gcc)
-* [ ] **LLVM backend** — compile Quill directly to LLVM IR / native machine code, dropping the C intermediate step for tighter optimization and a simpler runtime story
-* [ ] Incremental improvements to the current C backend until the LLVM path is ready
+* [x] LLVM backend as the default for scalars, vectors, fixed arrays, structs, functions, output, branches, and loops
+* [ ] LLVM support for raw C statements and remaining compatibility edge cases
+* [ ] Remove the C compatibility backend after parity is complete
 
 ### Tooling
 * [x] Package manager (`qpm`) for optional GitHub-based modules

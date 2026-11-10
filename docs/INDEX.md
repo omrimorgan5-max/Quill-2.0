@@ -47,13 +47,13 @@ Quill is a **statically-typed, compiled language** built for performance. It fea
 
 ### Command-Line Usage
 
-#### Compile to Native Binary
+#### Compile to Native Binary (LLVM, Default)
 
 ```bash
 quill-[os] myfile.qsc
 ```
 
-Transpiles to C and compiles to a native executable.
+Compiles supported Quill code through LLVM and Clang. Use `--backend c` as a compatibility fallback.
 
 **Options:**
 - `-o OUTPUT` — Specify output filename
@@ -71,6 +71,14 @@ quill-[os] --emit-c myfile.qsc -o output.c
 ```
 
 Generates C code without compiling. Useful for inspection or custom compilation.
+
+#### Emit LLVM IR Without Compiling
+
+```bash
+quill-[os] --emit-llvm myfile.qsc -o output.ll
+```
+
+Use `--backend llvm` explicitly when selecting the backend in scripts that may also select C.
 
 **Examples:**
 ```bash

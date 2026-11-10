@@ -1,0 +1,177 @@
+fn token(kind: string, value: string) -> string {
+    return kind + "|" + value;
+}
+
+fn is_space(code: number) -> bool {
+    return code == 32 || code == 9 || code == 10 || code == 13;
+}
+
+fn is_digit(code: number) -> bool {
+    return code >= 48 && code <= 57;
+}
+
+fn is_identifier_start(code: number) -> bool {
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code == 95;
+}
+
+fn is_identifier_continue(code: number) -> bool {
+    return is_identifier_start(code) || is_digit(code);
+}
+
+fn is_keyword(word: string) -> bool {
+    return word == "let" || word == "mut" || word == "const" || word == "fn" || word == "func" ||
+           word == "if" || word == "else" || word == "while" || word == "for" || word == "in" ||
+           word == "return" || word == "break" || word == "continue" || word == "true" ||
+           word == "false" || word == "struct" || word == "extern" || word == "import" ||
+           word == "say" || word == "printf";
+}
+
+fn two_character_operator(source: string, index: number) -> string {
+    if index + 1 >= len(source) {
+        return "";
+    }
+    let pair: string = substring(source, index, index + 2);
+    if pair == "==" || pair == "!=" || pair == "<=" || pair == ">=" || pair == "&&" ||
+       pair == "||" || pair == "++" || pair == "--" || pair == "->" || pair == ".." ||
+       pair == "<<" || pair == ">>" {
+        return pair;
+    }
+    return "";
+}
+
+fn tokenize(source: string) -> Vec<string> {
+    let mut tokens: Vec<string> = [];
+    let mut index: number = 0;
+
+    while index < len(source) {
+        let current: number = source[index];
+        if is_space(current) {
+            index++;
+            continue;
+        }
+
+        if current == 35 {
+            while index < len(source) && source[index] != 10 {
+                index++;
+            }
+            continue;
+        }
+
+        if is_identifier_start(current) {
+            let start: number = index;
+            index++;
+            while index < len(source) && is_identifier_continue(source[index]) {
+                index++;
+            }
+            let word: string = substring(source, start, index);
+            if is_keyword(word) {
+                push(tokens, token("keyword", word));
+            } else {
+                push(tokens, token("identifier", word));
+            }
+            continue;
+        }
+
+        if is_digit(current) {
+            let start: number = index;
+            index++;
+            while index < len(source) && is_digit(source[index]) {
+                index++;
+            }
+            if index + 1 < len(source) && source[index] == 46 && is_digit(source[index + 1]) {
+                index++;
+                while index < len(source) && is_digit(source[index]) {
+                    index++;
+                }
+            }
+            push(tokens, token("number", substring(source, start, index)));
+            continue;
+        }
+
+        if current == 34 || current == 39 {
+            let quote: number = current;
+            index++;
+            let mut value: string = "";
+            while index < len(source) && source[index] != quote {
+                let character: number = source[index];
+                if character == 92 && index + 1 < len(source) {
+                    index++;
+                    character = source[index];
+                    if character == 110 {
+                        value = value + toChar(10);
+                    } else if character == 116 {
+                        value = value + toChar(9);
+                    } else if character == 114 {
+                        value = value + toChar(13);
+                    } else {
+                        value = value + toChar(character);
+                    }
+                } else {
+                    value = value + toChar(character);
+                }
+                index++;
+            }
+            if index < len(source) {
+                index++;
+            }
+            if quote == 34 {
+                push(tokens, token("string", value));
+            } else {
+                push(tokens, token("char", value));
+            }
+            continue;
+        }
+
+        let operator: string = two_character_operator(source, index);
+        if operator != "" {
+            push(tokens, token("symbol", operator));
+            index = index + 2;
+        } else {
+            push(tokens, token("symbol", toString(toChar(current))));
+            index++;
+        }
+    }
+
+    push(tokens, token("eof", ""));
+    return tokens;
+}
+
+fn validate_delimiters(tokens: Vec<string>) -> bool {
+    let mut openings: Vec<number> = [];
+    for index in 0..len(tokens) {
+        let current: string = tokens[index];
+        let separator: number = indexOf(current, "|");
+        let kind: string = substring(current, 0, separator);
+        if kind != "symbol" {
+            continue;
+        }
+        let value: string = substring(current, separator + 1, len(current));
+        if value == "(" {
+            push(openings, 40);
+        } else if value == "{" {
+            push(openings, 123);
+        } else if value == "[" {
+            push(openings, 91);
+        } else if value == ")" || value == "}" || value == "]" {
+            if len(openings) == 0 {
+                return false;
+            }
+            let opening: number = pop(openings);
+            if value == ")" && opening != 40 {
+                return false;
+            }
+            if value == "}" && opening != 123 {
+                return false;
+            }
+            if value == "]" && opening != 91 {
+                return false;
+            }
+        }
+    }
+    return len(openings) == 0;
+}
+
+fn lex_and_validate(source: string) -> bool {
+    let tokens: Vec<string> = tokenize(source);
+    return validate_delimiters(tokens);
+}

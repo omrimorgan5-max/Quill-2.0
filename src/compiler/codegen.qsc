@@ -1,0 +1,439 @@
+import "parser.qsc";
+
+let mut source_tokens: Vec<string> = [];
+let mut token_cursor: number = 0;
+let mut symbol_slots: map[string, string];
+let mut function_arities: map[string, number];
+let mut generated_instructions: string = "";
+let mut generated_functions: string = "";
+let mut current_function: string = "";
+let mut function_has_return: bool = false;
+let mut temporary_number: number = 0;
+let mut compile_failed: bool = false;
+let mut compiler_error: string = "";
+
+fn peek_token() -> string {
+    if token_cursor >= len(source_tokens) {
+        return "eof|";
+    }
+    return source_tokens[token_cursor];
+}
+
+fn take_token() -> string {
+    let current: string = peek_token();
+    if token_cursor < len(source_tokens) {
+        token_cursor++;
+    }
+    return current;
+}
+
+fn expect_token(expected: string) -> bool {
+    let actual: string = take_token();
+    if actual == expected {
+        return true;
+    }
+    compile_failed = true;
+    compiler_error = "expected '" + expected + "', got '" + actual + "'";
+    return false;
+}
+
+fn new_temporary() -> string {
+    let name: string = "%boot." + toString(temporary_number);
+    temporary_number++;
+    return name;
+}
+
+fn slot_key(name: string) -> string {
+    if current_function == "" {
+        return name;
+    }
+    return current_function + "|" + name;
+}
+
+fn parse_primary() -> string {
+    let current: string = take_token();
+    let separator: number = indexOf(current, "|");
+    let kind: string = substring(current, 0, separator);
+    let value: string = substring(current, separator + 1, len(current));
+
+    if kind == "number" {
+        return value;
+    }
+    if current == "keyword|true" {
+        return "1";
+    }
+    if current == "keyword|false" {
+        return "0";
+    }
+    if kind == "identifier" {
+        if map_has(symbol_slots, slot_key(value)) {
+            let result: string = new_temporary();
+            generated_instructions = generated_instructions + "  " + result + " = load i32, i32* " +
+                                     symbol_slots[slot_key(value)] + ", align 4\n";
+            return result;
+        }
+        if !map_has(function_arities, value) {
+            compile_failed = true;
+            compiler_error = "unknown identifier or function '" + value + "'";
+            return "0";
+        }
+        if !expect_token("symbol|(") {
+            return "0";
+        }
+        let mut arguments: string = "";
+        let mut argument_count: number = 0;
+        while peek_token() != "symbol|)" && peek_token() != "eof|" {
+            if argument_count > 0 {
+                if !expect_token("symbol|,") {
+                    return "0";
+                }
+                arguments = arguments + ", ";
+            }
+            let argument: string = parse_expression();
+            arguments = arguments + "i32 " + argument;
+            argument_count++;
+        }
+        if !expect_token("symbol|)") || argument_count != function_arities[value] {
+            compile_failed = true;
+            return "0";
+        }
+        let result: string = new_temporary();
+        generated_instructions = generated_instructions + "  " + result + " = call i32 @quill_boot_" + value +
+                                 "(" + arguments + ")\n";
+        return result;
+    }
+    if current == "symbol|-" {
+        let value: string = parse_primary();
+        let result: string = new_temporary();
+        generated_instructions = generated_instructions + "  " + result + " = sub i32 0, " + value + "\n";
+        return result;
+    }
+    compile_failed = true;
+    compiler_error = "expected an integer literal or identifier, got '" + current + "'";
+    return "0";
+}
+
+fn parse_product() -> string {
+    let left: string = parse_primary();
+    while peek_token() == "symbol|*" || peek_token() == "symbol|/" || peek_token() == "symbol|%" {
+        let operation: string = take_token();
+        let right: string = parse_primary();
+        let result: string = new_temporary();
+        if operation == "symbol|*" {
+            generated_instructions = generated_instructions + "  " + result + " = mul i32 " + left + ", " + right + "\n";
+        } else if operation == "symbol|/" {
+            generated_instructions = generated_instructions + "  " + result + " = sdiv i32 " + left + ", " + right + "\n";
+        } else {
+            generated_instructions = generated_instructions + "  " + result + " = srem i32 " + left + ", " + right + "\n";
+        }
+        left = result;
+    }
+    return left;
+}
+
+fn parse_expression() -> string {
+    let left: string = parse_product();
+    while peek_token() == "symbol|+" || peek_token() == "symbol|-" {
+        let operation: string = take_token();
+        let right: string = parse_product();
+        let result: string = new_temporary();
+        if operation == "symbol|+" {
+            generated_instructions = generated_instructions + "  " + result + " = add i32 " + left + ", " + right + "\n";
+        } else {
+            generated_instructions = generated_instructions + "  " + result + " = sub i32 " + left + ", " + right + "\n";
+        }
+        left = result;
+    }
+    return left;
+}
+
+fn parse_declaration() -> bool {
+    take_token();
+    let name_token: string = take_token();
+    if name_token == "keyword|mut" || name_token == "keyword|const" {
+        name_token = take_token();
+    }
+    if !startsWith(name_token, "identifier|") {
+        compile_failed = true;
+        compiler_error = "expected a function name, got '" + name_token + "'";
+        return false;
+    }
+    let name: string = substring(name_token, len("identifier|"), len(name_token));
+
+    if peek_token() == "symbol|:" {
+        take_token();
+        if take_token() != "identifier|number" {
+            compile_failed = true;
+            return false;
+        }
+    }
+    if !expect_token("symbol|=") {
+        return false;
+    }
+
+    let value: string = parse_expression();
+    let slot: string = "%boot.slot." + current_function + "." + name;
+    generated_instructions = generated_instructions + "  " + slot + " = alloca i32, align 4\n" +
+                             "  store i32 " + value + ", i32* " + slot + ", align 4\n";
+    symbol_slots[slot_key(name)] = slot;
+    return expect_token("symbol|;");
+}
+
+fn parse_assignment() -> bool {
+    let name_token: string = take_token();
+    let name: string = substring(name_token, len("identifier|"), len(name_token));
+    if !map_has(symbol_slots, slot_key(name)) || !expect_token("symbol|=") {
+        compile_failed = true;
+        return false;
+    }
+    let value: string = parse_expression();
+    generated_instructions = generated_instructions + "  store i32 " + value + ", i32* " +
+                             symbol_slots[slot_key(name)] + ", align 4\n";
+    return expect_token("symbol|;");
+}
+
+fn parse_output() -> bool {
+    take_token();
+    let value: string = parse_expression();
+    generated_instructions = generated_instructions +
+        "  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.boot.format, i32 0, i32 0), i32 " + value + ")\n";
+    return expect_token("symbol|;");
+}
+
+fn new_label(prefix: string) -> string {
+    let name: string = "boot." + prefix + "." + toString(temporary_number);
+    temporary_number++;
+    return name;
+}
+
+fn parse_condition() -> string {
+    let left: string = parse_expression();
+    let operation: string = take_token();
+    let right: string = parse_expression();
+    let predicate: string = "eq";
+    if operation == "symbol|!=" {
+        predicate = "ne";
+    } else if operation == "symbol|<" {
+        predicate = "slt";
+    } else if operation == "symbol|>" {
+        predicate = "sgt";
+    } else if operation == "symbol|<=" {
+        predicate = "sle";
+    } else if operation == "symbol|>=" {
+        predicate = "sge";
+    } else if operation != "symbol|==" {
+        compile_failed = true;
+    }
+    let result: string = new_temporary();
+    generated_instructions = generated_instructions + "  " + result + " = icmp " + predicate +
+                             " i32 " + left + ", " + right + "\n";
+    return result;
+}
+
+fn parse_block() -> bool {
+    if !expect_token("symbol|{") {
+        return false;
+    }
+    while peek_token() != "symbol|}" && peek_token() != "eof|" && !compile_failed {
+        let previous_cursor: number = token_cursor;
+        parse_statement();
+        if token_cursor == previous_cursor {
+            compile_failed = true;
+        }
+    }
+    return expect_token("symbol|}");
+}
+
+fn parse_if() -> bool {
+    take_token();
+    let condition: string = parse_condition();
+    let then_label: string = new_label("if.then");
+    let else_label: string = new_label("if.else");
+    let merge_label: string = new_label("if.end");
+    generated_instructions = generated_instructions + "  br i1 " + condition + ", label %" + then_label +
+                             ", label %" + else_label + "\n" + then_label + ":\n";
+    parse_block();
+    generated_instructions = generated_instructions + "  br label %" + merge_label + "\n" + else_label + ":\n";
+    if peek_token() == "keyword|else" {
+        take_token();
+        if peek_token() == "keyword|if" {
+            parse_if();
+        } else {
+            parse_block();
+        }
+    }
+    generated_instructions = generated_instructions + "  br label %" + merge_label + "\n" + merge_label + ":\n";
+    return !compile_failed;
+}
+
+fn parse_while() -> bool {
+    take_token();
+    let condition_label: string = new_label("while.cond");
+    let body_label: string = new_label("while.body");
+    let end_label: string = new_label("while.end");
+    generated_instructions = generated_instructions + "  br label %" + condition_label + "\n" + condition_label + ":\n";
+    let condition: string = parse_condition();
+    generated_instructions = generated_instructions + "  br i1 " + condition + ", label %" + body_label +
+                             ", label %" + end_label + "\n" + body_label + ":\n";
+    parse_block();
+    generated_instructions = generated_instructions + "  br label %" + condition_label + "\n" + end_label + ":\n";
+    return !compile_failed;
+}
+
+fn parse_return() -> bool {
+    if current_function == "" {
+        compile_failed = true;
+        return false;
+    }
+    take_token();
+    let value: string = parse_expression();
+    generated_instructions = generated_instructions + "  ret i32 " + value + "\n";
+    function_has_return = true;
+    return expect_token("symbol|;");
+}
+
+fn parse_function() -> bool {
+    take_token();
+    let name_token: string = take_token();
+    if !startsWith(name_token, "identifier|") {
+        compile_failed = true;
+        return false;
+    }
+    let name: string = substring(name_token, len("identifier|"), len(name_token));
+    if !expect_token("symbol|(") {
+        return false;
+    }
+
+    let mut parameters: Vec<string> = [];
+    let mut parameter_count: number = 0;
+    while peek_token() != "symbol|)" && peek_token() != "eof|" {
+        if parameter_count > 0 && !expect_token("symbol|,") {
+            return false;
+        }
+        let parameter_token: string = take_token();
+        if !startsWith(parameter_token, "identifier|") {
+            compile_failed = true;
+            compiler_error = "expected a numeric parameter name, got '" + parameter_token + "'";
+            return false;
+        }
+        let parameter_name: string = substring(parameter_token, len("identifier|"), len(parameter_token));
+        if peek_token() == "symbol|:" {
+            take_token();
+            if take_token() != "identifier|number" {
+                compile_failed = true;
+                compiler_error = "stage 0 supports only number parameters";
+                return false;
+            }
+        }
+        push(parameters, parameter_name);
+        parameter_count++;
+    }
+    if !expect_token("symbol|)") {
+        return false;
+    }
+    if peek_token() == "symbol|->" || peek_token() == "symbol|:" {
+        take_token();
+        if take_token() != "identifier|number" {
+            compile_failed = true;
+            compiler_error = "stage 0 supports only number return values";
+            return false;
+        }
+    }
+
+    let saved_instructions: string = generated_instructions;
+    let saved_function: string = current_function;
+    let saved_return: bool = function_has_return;
+    let saved_temporary: number = temporary_number;
+    generated_instructions = "";
+    current_function = name;
+    function_has_return = false;
+    temporary_number = 0;
+    function_arities[name] = parameter_count;
+
+    let mut parameter_signature: string = "";
+    for index in 0..parameter_count {
+        let parameter_name: string = parameters[index];
+        let slot: string = "%boot.slot." + name + "." + parameter_name;
+        if index > 0 {
+            parameter_signature = parameter_signature + ", ";
+        }
+        parameter_signature = parameter_signature + "i32 %arg" + toString(index);
+        generated_instructions = generated_instructions + "  " + slot + " = alloca i32, align 4\n" +
+                                 "  store i32 %arg" + toString(index) + ", i32* " + slot + ", align 4\n";
+        symbol_slots[slot_key(parameter_name)] = slot;
+    }
+
+    parse_block();
+    if !function_has_return {
+        generated_instructions = generated_instructions + "  ret i32 0\n";
+    }
+    generated_functions = generated_functions + "define i32 @quill_boot_" + name + "(" + parameter_signature +
+                          ") {\nentry:\n" + generated_instructions + "}\n\n";
+    generated_instructions = saved_instructions;
+    current_function = saved_function;
+    function_has_return = saved_return;
+    temporary_number = saved_temporary;
+    return !compile_failed;
+}
+
+fn parse_statement() -> bool {
+    if peek_token() == "keyword|let" || peek_token() == "keyword|mut" || peek_token() == "keyword|const" {
+        return parse_declaration();
+    }
+    if peek_token() == "keyword|say" || peek_token() == "keyword|printf" {
+        return parse_output();
+    }
+    if peek_token() == "keyword|if" {
+        return parse_if();
+    }
+    if peek_token() == "keyword|while" {
+        return parse_while();
+    }
+    if startsWith(peek_token(), "identifier|") {
+        return parse_assignment();
+    }
+    if peek_token() == "keyword|return" {
+        return parse_return();
+    }
+    if peek_token() == "keyword|fn" || peek_token() == "keyword|func" {
+        return parse_function();
+    }
+    compile_failed = true;
+    compiler_error = "unsupported stage-0 statement '" + peek_token() + "'";
+    return false;
+}
+
+fn compile_source(source: string) -> string {
+    if !parse_quill_source(source) {
+        return "";
+    }
+    source_tokens = tokenize(source);
+    token_cursor = 0;
+    generated_instructions = "";
+    generated_functions = "";
+    current_function = "";
+    function_has_return = false;
+    temporary_number = 0;
+    compile_failed = false;
+    compiler_error = "";
+
+    while peek_token() != "eof|" && !compile_failed {
+        let previous_cursor: number = token_cursor;
+        parse_statement();
+        if token_cursor == previous_cursor {
+            compile_failed = true;
+        }
+    }
+    if compile_failed {
+        if compiler_error == "" {
+            compiler_error = "unsupported syntax near '" + peek_token() + "'";
+        }
+        return "BOOTSTRAP_ERROR|" + compiler_error;
+    }
+
+    return "source_filename = \"quill-bootstrap\"\n" +
+           "declare i32 @printf(i8*, ...)\n" +
+           "@.boot.format = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1\n\n" +
+            generated_functions + "define i32 @main() {\nentry:\n" + generated_instructions +
+           "  ret i32 0\n}\n";
+}

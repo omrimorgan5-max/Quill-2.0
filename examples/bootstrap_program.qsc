@@ -1,0 +1,19 @@
+fn double_value(value: number) -> number {
+	return value * 2;
+}
+
+fn add_values(left: number, right: number) -> number {
+	return left + right;
+}
+
+let base: number = add_values(1, 1);
+let exponent: number = 3;
+let mut result: number = double_value(base) * exponent + 4;
+while result < 20 {
+	result = result + 1;
+}
+if result == 20 {
+	say result;
+} else {
+	say 0;
+}

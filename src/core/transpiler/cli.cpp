@@ -4,12 +4,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "../lexer/lexer.cpp"
 
 std::string transpileSource(const std::string &source, const std::string &baseDir, bool typeCheck);
+std::string transpileToLLVM(const std::string &source, const std::string &baseDir, bool typeCheck);
 
 namespace
 {
@@ -21,11 +23,11 @@ namespace
         return path.substr(0, dot) + newExt;
     }
 
-    std::string temporaryCPath()
+    std::string temporaryPath(const std::string &extension)
     {
         auto directory = std::filesystem::temp_directory_path();
         auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        std::filesystem::path path = directory / ("quill-" + std::to_string(stamp) + ".c");
+        std::filesystem::path path = directory / ("quill-" + std::to_string(stamp) + extension);
         return path.string();
     }
 }
@@ -34,9 +36,10 @@ int main(int argc, char **argv)
 {
     bool debug = false;
     bool version = false;
-    bool emitC = false;
+    bool emitSource = false;
     bool typeCheck = false;
     bool format = false;
+    std::string backend = "llvm";
     std::string outputPath;
     std::vector<std::string> args;
 
@@ -51,9 +54,31 @@ int main(int argc, char **argv)
         {
         }
         else if (arg == "--emit-c" || arg == "--transpile")
-            emitC = true;
+        {
+            backend = "c";
+            emitSource = true;
+        }
+        else if (arg == "--emit-llvm")
+        {
+            backend = "llvm";
+            emitSource = true;
+        }
+        else if (arg == "--backend")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "missing value for --backend\n";
+                return 1;
+            }
+            backend = argv[++i];
+            if (backend != "c" && backend != "llvm")
+            {
+                std::cerr << "unsupported backend: " << backend << " (expected c or llvm)\n";
+                return 1;
+            }
+        }
         else if (arg == "--compile")
-            emitC = false;
+            emitSource = false;
         else if (arg == "-tc" || arg == "--typeCheck")
             typeCheck = true;
         else if (arg == "-o" || arg == "--output")
@@ -79,7 +104,13 @@ int main(int argc, char **argv)
 
     if (args.size() != 1)
     {
-        std::cerr << "Usage: quill [--emit-c|--compile] [-o output] <input.qsc>\n";
+        std::cerr << "Usage: quill [--backend c|llvm] [--emit-c|--emit-llvm|--compile] [-o output] <input.qsc>\n";
+        return 1;
+    }
+
+    if (format && backend == "llvm")
+    {
+        std::cerr << "--format is only supported for the C backend\n";
         return 1;
     }
 
@@ -107,7 +138,9 @@ int main(int argc, char **argv)
     std::string generatedSource;
     try
     {
-        generatedSource = transpileSource(source, baseDir, typeCheck);
+        generatedSource = backend == "llvm"
+                      ? transpileToLLVM(source, baseDir, typeCheck)
+                      : transpileSource(source, baseDir, typeCheck);
     }
     catch (const std::exception &ex)
     {
@@ -116,44 +149,47 @@ int main(int argc, char **argv)
     }
 
     std::string binaryPath = outputPath.empty() ? replaceExtension(inputPath, "") : outputPath;
-    std::string cPath = emitC
-                            ? (outputPath.empty() ? replaceExtension(inputPath, ".c") : outputPath)
-                            : temporaryCPath();
+    std::string extension = backend == "llvm" ? ".ll" : ".c";
+    std::string sourcePath = emitSource
+                                 ? (outputPath.empty() ? replaceExtension(inputPath, extension) : outputPath)
+                                 : temporaryPath(extension);
 
-    std::ofstream outputFile(cPath);
+    std::ofstream outputFile(sourcePath);
     if (!outputFile.is_open())
     {
-        std::cerr << "failed to open output file: " << cPath << "\n";
+        std::cerr << "failed to open output file: " << sourcePath << "\n";
         return 1;
     }
     outputFile << generatedSource;
     outputFile.close();
 
-    if (debug && emitC)
-        std::cout << "=== OUTPUT ===\n  wrote: " << cPath << "\n";
+    if (debug && emitSource)
+        std::cout << "=== OUTPUT ===\n  wrote: " << sourcePath << "\n";
 
     if (format)
     {
-        std::string formatCommand = "clang-format -style=Google -i \"" + cPath + "\"";
+        std::string formatCommand = "clang-format -style=Google -i \"" + sourcePath + "\"";
         int result = std::system(formatCommand.c_str());
         if (result != 0)
         {
-            if (!emitC)
-                std::remove(cPath.c_str());
-            std::cerr << "failed to format generated C: " << cPath << "\n";
+            if (!emitSource)
+                std::remove(sourcePath.c_str());
+            std::cerr << "failed to format generated source: " << sourcePath << "\n";
             return 1;
         }
     }
 
-    if (emitC)
+    if (emitSource)
         return 0;
 
-    std::string gccCommand = "gcc -std=c11 -Wall -Wextra -pedantic -Wno-unused-function \"" + cPath + "\" -lm -o \"" + binaryPath + "\"";
-    int result = std::system(gccCommand.c_str());
-    std::remove(cPath.c_str());
+    std::string compileCommand = backend == "llvm"
+                                     ? "clang -Wno-override-module -O2 \"" + sourcePath + "\" -o \"" + binaryPath + "\""
+                                     : "gcc -std=c11 -Wall -Wextra -pedantic -Wno-unused-function \"" + sourcePath + "\" -lm -o \"" + binaryPath + "\"";
+    int result = std::system(compileCommand.c_str());
+    std::remove(sourcePath.c_str());
     if (result != 0)
     {
-        std::cerr << "failed to compile generated C\n";
+        std::cerr << "failed to compile generated " << (backend == "llvm" ? "LLVM IR" : "C") << "\n";
         return 1;
     }
 

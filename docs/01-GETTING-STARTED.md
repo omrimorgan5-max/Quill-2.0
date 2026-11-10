@@ -62,13 +62,13 @@ Or in one step with the `-o` flag to specify output:
 
 ### Compiling to a Native Binary
 
-Compile to an executable (this is the default):
+Compile to an executable with LLVM (this is the default):
 
 ```bash
 quill-[os] myfile.qsc
 ```
 
-The generated C source is temporary and removed after compilation.
+The generated LLVM IR is temporary and removed after compilation. Use `--backend c` for programs that still require an unsupported LLVM feature.
 
 ### Transpiling to C Only
 
@@ -79,6 +79,17 @@ quill-[os] --emit-c myfile.qsc -o output.c
 ```
 
 This is useful if you want to inspect the generated C or compile with custom C flags.
+
+### Emitting LLVM IR
+
+Emit LLVM IR for inspection or assembly with `llvm-as`:
+
+```bash
+quill --emit-llvm myfile.qsc -o output.ll
+llvm-as output.ll -o output.bc
+```
+
+The LLVM backend supports scalar values, vectors, fixed arrays, structs, calls, printing, conditionals, loops, and common string operations. Some runtime APIs and maps remain on the C backend for now.
 
 ### Output File Naming
 

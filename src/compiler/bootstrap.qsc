@@ -1,0 +1,21 @@
+import "codegen.qsc";
+
+if argc() < 3 {
+    say "usage: quill-bootstrap input.qsc output.ll";
+} else {
+    let input_path: string = argv(1);
+    let output_path: string = argv(2);
+    if !file_exists(input_path) {
+        say "bootstrap compiler: input file not found";
+    } else {
+        let source: string = read_file(input_path);
+        let llvm_ir: string = compile_source(source);
+        if startsWith(llvm_ir, "BOOTSTRAP_ERROR|") {
+            say substring(llvm_ir, len("BOOTSTRAP_ERROR|"), len(llvm_ir));
+        } else if write_file(output_path, llvm_ir) == 0 {
+            say "Wrote LLVM IR";
+        } else {
+            say "bootstrap compiler: could not write output";
+        }
+    }
+}

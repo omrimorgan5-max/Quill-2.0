@@ -1,0 +1,21 @@
+let mut total: number = 0;
+
+fn sum_to(limit: number) -> number {
+    let mut sum: number = 0;
+    for index in 0..limit {
+        sum = sum + index;
+    }
+    return sum;
+}
+
+fn add_to_total(value: number) -> number {
+    total = total + value;
+    return total;
+}
+
+if sum_to(5) == 10 && add_to_total(7) == 7 {
+    say "LLVM PASS";
+}
+
+let measurement: double = 2.5 * 4.0;
+say measurement;

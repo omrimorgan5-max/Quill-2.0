@@ -279,3 +279,17 @@ if contains("standalone", "alone") && startsWith("Quill", "Qui") && endsWith("Qu
 if toInt(-4.75) == -4 && toDouble(9) == 9.0 {
     say "PASS numeric casts";
 }
+
+let mut short_circuit_count: number = 0;
+fn mark_short_circuit() -> bool {
+    short_circuit_count++;
+    return true;
+}
+if false && mark_short_circuit() {
+    say "FAIL && short circuit";
+}
+if true || mark_short_circuit() {
+    if short_circuit_count == 0 {
+        say "PASS LLVM short circuit";
+    }
+}

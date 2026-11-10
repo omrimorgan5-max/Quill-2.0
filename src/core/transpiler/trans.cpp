@@ -1751,6 +1751,25 @@ namespace
 
 } // namespace
 
+Program parseQuillProgram(const std::string &source, const std::string &baseDir)
+{
+    Lexer lexer(source);
+    Parser parser(lexer.tokenize());
+    Program program = parser.parse();
+    std::set<std::string> inProgress;
+    program = expandImports(program, baseDir, inProgress);
+    checkForDuplicateFunctions(program);
+    return program;
+}
+
+void typeCheckQuillProgram(const Program &program)
+{
+    TypeChecker checker;
+    checker.check(program, buildFunctionReturnTypes(program));
+}
+
+std::string transpileToLLVM(const std::string &source, const std::string &baseDir, bool typeCheck);
+
 std::string transpileSource(const std::string &source, const std::string &baseDir, bool typeCheck)
 {
     Transpiler transpiler;

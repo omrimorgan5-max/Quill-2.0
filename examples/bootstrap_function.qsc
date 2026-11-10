@@ -1,0 +1,5 @@
+fn double_value(value: number) -> number {
+    return value * 2;
+}
+
+say double_value(5);

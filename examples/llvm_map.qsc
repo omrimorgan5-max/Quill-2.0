@@ -1,0 +1,25 @@
+fn put_score(scores: map[string, number], name: string, value: number) -> number {
+    scores[name] = value;
+    return scores[name];
+}
+
+let mut scores: map[string, number];
+put_score(scores, "Ada", 42);
+scores["Lin"] = 37;
+if map_has(scores, "Ada") && map_len(scores) == 2 && scores["Lin"] == 37 {
+    say "PASS LLVM map";
+}
+map_del(scores, "Ada");
+if !map_has(scores, "Ada") && len(scores) == 1 {
+    say "PASS LLVM map delete";
+}
+
+let mut measurements: map[string, double];
+measurements["pi"] = 3.14;
+let mut flags: map[string, bool];
+flags["ready"] = true;
+let mut labels: map[string, string];
+labels["backend"] = "LLVM";
+if measurements["pi"] == 3.14 && flags["ready"] && labels["backend"] == "LLVM" {
+    say "PASS LLVM map value types";
+}

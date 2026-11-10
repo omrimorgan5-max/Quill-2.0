@@ -333,6 +333,13 @@ See the `examples/` directory in the repository for additional complete programs
 - `examples/twosum.qsc` — Find pairs that sum to a target
 - `examples/leetcode_practice.qsc` — Quill-only solutions for 12 listed problems, including string arithmetic, vectors, and loop control
 - `examples/struct_values.qsc` — Pass, update, and return a Quill struct value
+- `examples/llvm_map.qsc` — String-keyed map operations on LLVM
+- `examples/llvm_runtime.qsc` — LLVM file I/O and process arguments
+- `examples/llvm_input.qsc` — Read input through LLVM
+- `examples/llvm_smoke.qsc` — LLVM scalar, function, and control-flow smoke test
+- `examples/bootstrap_lexer.qsc` — Run the Quill-written lexer/parser on source files
+- `examples/bootstrap_program.qsc` — Numeric source accepted by the stage-0 Quill compiler
+- `examples/bootstrap_function.qsc` — Exercise numeric function arguments and returns in stage 0
 - `examples/exponent.qsc` — Calculate exponents
 - `examples/math.example.qsc` — Demonstrate math library functions
 

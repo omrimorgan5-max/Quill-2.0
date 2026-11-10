@@ -1,0 +1,41 @@
+import "lexer.qsc";
+
+fn token_has_prefix(value: string, prefix: string) -> bool {
+    return startsWith(value, prefix);
+}
+
+fn validate_token_stream(tokens: Vec<string>) -> bool {
+    if !validate_delimiters(tokens) {
+        return false;
+    }
+
+    let mut index: number = 0;
+    while index < len(tokens) {
+        let current: string = tokens[index];
+        if current == "keyword|fn" || current == "keyword|func" {
+            if index + 2 >= len(tokens) {
+                return false;
+            }
+            if !token_has_prefix(tokens[index + 1], "identifier|") || tokens[index + 2] != "symbol|(" {
+                return false;
+            }
+        }
+
+        if current == "keyword|let" || current == "keyword|const" {
+            let mut name_index: number = index + 1;
+            if name_index < len(tokens) && tokens[name_index] == "keyword|mut" {
+                name_index++;
+            }
+            if name_index >= len(tokens) || !token_has_prefix(tokens[name_index], "identifier|") {
+                return false;
+            }
+        }
+        index++;
+    }
+    return true;
+}
+
+fn parse_quill_source(source: string) -> bool {
+    let tokens: Vec<string> = tokenize(source);
+    return validate_token_stream(tokens);
+}
